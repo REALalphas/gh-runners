@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        bzip2 ca-certificates curl git gnupg jq libatomic1 libicu74 libkrb5-3 libssl3t64 nftables unzip util-linux xz-utils zlib1g zstd \
+        bzip2 ca-certificates curl fonts-freefont-ttf fonts-ipafont-gothic fonts-liberation fonts-noto-color-emoji fonts-tlwg-loma-otf fonts-unifont fonts-wqy-zenhei git gnupg jq libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatomic1 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0t64 libicu74 libkrb5-3 libnspr4 libnss3 libpango-1.0-0 libsecret-1-dev libssl3t64 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 nftables pkg-config unzip util-linux xfonts-cyrillic xfonts-scalable xvfb xz-utils zlib1g zstd \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 gha \
     && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha \
