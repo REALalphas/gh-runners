@@ -57,7 +57,7 @@ def uses_pool(source, slot_labels):
 
 def containers(instance, engine):
     output = subprocess.check_output(
-        [engine, "ps", "--all", "--filter", f"label=gh-runners.instance={instance}",
+        [engine, "ps", "--filter", f"label=gh-runners.instance={instance}",
          "--format", '{{.Names}}'], text=True,
     )
     return set(output.splitlines())
