@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub Runner Profile"
+  short_description: "Выбирает профиль self-hosted runner по нагрузке job"
+  default_prompt: "Use $github-runner-profile to inspect the workflow and assign the smallest suitable self-hosted runner profile to each job."

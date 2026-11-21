@@ -1,4 +1,0 @@
-interface:
-  display_name: "Agent Pool"
-  short_description: "Разбивает задачу на субагентов и собирает проверенный результат"
-  default_prompt: "Use $agent-pool to split this task across suitable agents, integrate their work, and verify the final result."
