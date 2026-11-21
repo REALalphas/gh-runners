@@ -3,7 +3,8 @@ set -euo pipefail
 umask 077
 
 nft -f /etc/runner.nft
-install -d -m 0700 -o gha -g gha /runner/home /runner/actions
+mkdir -p -m 0700 /runner/home /runner/actions
+chown gha:gha /runner/home /runner/actions
 as_runner=(setpriv --reuid=gha --regid=gha --clear-groups
            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs
            env HOME=/runner/home --chdir=/runner/actions)
