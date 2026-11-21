@@ -15,6 +15,7 @@ if [[ -n ${RUNNER_KVM_GID:-} ]]; then
     export NIX_CONFIG='extra-system-features = kvm nixos-test'
 fi
 unset RUNNER_KVM_GID
+export RUNNER_MANUALLY_TRAP_SIG=1
 as_runner=(setpriv --reuid=gha --regid=gha "${groups[@]}"
            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs
            env --chdir=/runner/actions HOME=/runner/home)

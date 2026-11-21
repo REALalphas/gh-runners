@@ -59,7 +59,7 @@ Before starting, edit `config.json`.
 - Give each slot a unique name. Set its label, CPU quota, and memory limit. Keep distinct instance names when running separate controllers against the same container engine.
 - Keep the default poll interval to start. A shorter interval makes more GitHub API requests.
 
-The process needs permission to invoke the container engine. For unattended operation, use a service manager to restart the controller after a reboot.
+The process needs permission to invoke the container engine. For unattended operation, use a service manager to restart the controller after a reboot. With systemd, set `KillMode=process` so restarting the controller leaves active container clients running. Use GitHub Actions to cancel an active job.
 
 ## 4. Try a workflow
 

@@ -85,6 +85,7 @@ class Controller:
         self.app = app
         self.config = config
         self.active = {}
+        self.pending_deletions = set()
         self.repository_offset = 0
 
     def delete_runner(self, repository, runner_id):
@@ -100,8 +101,16 @@ class Controller:
             if exit_code is None:
                 continue
             LOG.info("Slot %s exited with status %d", slot, exit_code)
-            self.delete_runner(repository, runner_id)
+            self.pending_deletions.add((repository, runner_id))
             del self.active[slot]
+
+        for repository, runner_id in list(self.pending_deletions):
+            try:
+                self.delete_runner(repository, runner_id)
+            except (URLError, OSError) as error:
+                LOG.warning("Runner %s cleanup will be retried: %s", runner_id, error)
+            else:
+                self.pending_deletions.remove((repository, runner_id))
 
     def cycle(self):
         self.reap()
