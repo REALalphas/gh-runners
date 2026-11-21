@@ -11,6 +11,8 @@
   "instance": "example",
   "image": "gh-runners:local",
   "poll_seconds": 120,
+  "active_poll_seconds": 10,
+  "priority_repositories": [],
   "cache_root": null,
   "slots": [
     {

@@ -7,6 +7,7 @@ import subprocess
 from threading import Lock
 import time
 from urllib.parse import urlencode, urlsplit
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 
@@ -23,6 +24,7 @@ class GitHubApp:
         self._token = None
         self._expires_at = 0
         self._token_lock = Lock()
+        self.rate_limited_until = 0
 
     def _jwt(self):
         now = int(time.time())
@@ -37,8 +39,9 @@ class GitHubApp:
         )
         return f"{body}.{_base64url(signature)}"
 
-    @staticmethod
-    def _request(path, token, method="GET", payload=None):
+    def _request(self, path, token, method="GET", payload=None):
+        if time.time() < self.rate_limited_until:
+            raise RateLimited()
         request = Request(
             f"https://api.github.com{path}",
             data=None if payload is None else json.dumps(payload).encode(),
@@ -51,9 +54,26 @@ class GitHubApp:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        with urlopen(request, timeout=20) as response:
-            body = response.read()
-            return (json.loads(body) if body else None), response.headers
+        try:
+            with urlopen(request, timeout=20) as response:
+                body = response.read()
+                return (json.loads(body) if body else None), response.headers
+        except HTTPError as error:
+            headers = error.headers
+            remaining = headers.get("X-RateLimit-Remaining")
+            retry = headers.get("Retry-After")
+            secondary = (
+                error.code == 403 and remaining != "0" and not retry
+                and b"secondary rate limit" in error.read(4096).lower()
+            )
+            if error.code == 429 or (error.code == 403 and (remaining == "0" or retry or secondary)):
+                now = time.time()
+                resume = int(headers.get("X-RateLimit-Reset", "0")) + 1 if remaining == "0" else 0
+                resume = max(resume, now + int(retry) if retry else 0)
+                self.rate_limited_until = max(self.rate_limited_until, resume if resume > now else now + 60)
+                error.close()
+                raise RateLimited() from error
+            raise
 
     def _installation_token(self):
         with self._token_lock:
@@ -92,9 +112,14 @@ class GitHubApp:
 
     def queued_jobs(self, repository):
         runs = f"/repos/{repository}/actions/runs"
+        seen = set()
         for status in ("queued", "in_progress"):
             for run in self.pages(runs, "workflow_runs", status=status):
-                path = f"{runs}/{run['id']}/attempts/{run['run_attempt']}/jobs"
+                attempt = (run["id"], run["run_attempt"])
+                if attempt in seen:
+                    continue
+                seen.add(attempt)
+                path = f"{runs}/{attempt[0]}/attempts/{attempt[1]}/jobs"
                 for job in self.pages(path, "jobs"):
                     if job["status"] == "queued" and "self-hosted" in job["labels"]:
                         yield job
@@ -112,3 +137,7 @@ class GitHubApp:
             f"/repos/{repository}/actions/runners/{runner_id}",
             self._installation_token(), "DELETE",
         )
+
+
+class RateLimited(Exception):
+    """GitHub has asked this installation to pause requests."""

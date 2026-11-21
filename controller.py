@@ -15,7 +15,7 @@ import time
 from urllib.error import HTTPError, URLError
 from uuid import uuid4
 
-from github_app import GitHubApp
+from github_app import GitHubApp, RateLimited
 
 
 DEFAULT_LABELS = {"self-hosted", "linux", "x64"}
@@ -100,6 +100,10 @@ class Controller:
         self.active = {}
         self.pending_deletions = set()
         self.repository_offset = 0
+        self.repositories_cache = []
+        self.repositories_updated = 0
+        self.repository_checked = {}
+        self.hot_until = {}
 
     def delete_runner(self, repository, runner_id):
         try:
@@ -138,17 +142,28 @@ class Controller:
         if not free:
             return
 
-        repositories = sorted(
-            repo["full_name"] for repo in self.app.repositories()
-            if not repo["archived"] and not repo["disabled"]
-            and ("repositories" not in self.config or repo["full_name"] in self.config["repositories"])
-        )
-        if not repositories:
+        refresh_after = self.config.get("repository_refresh_seconds", 300)
+        if not self.repositories_cache or time.time() >= self.repositories_updated + refresh_after:
+            self.repositories_cache = sorted(
+                repo["full_name"] for repo in self.app.repositories()
+                if not repo["archived"] and not repo["disabled"]
+                and ("repositories" not in self.config or repo["full_name"] in self.config["repositories"])
+            )
+            self.repositories_updated = time.time()
+        now = time.monotonic()
+        priority = set(self.config.get("priority_repositories", ()))
+        active_interval = self.config.get("active_poll_seconds", 10)
+        idle_interval = self.config["poll_seconds"]
+        ready = [repo for repo in self.repositories_cache if now >= self.repository_checked.get(repo, float("-inf")) + (
+            active_interval if repo in priority or now < self.hot_until.get(repo, 0) else idle_interval
+        )]
+        if not ready:
             return
-        offset = self.repository_offset % len(repositories)
+        offset = self.repository_offset % len(ready)
         self.repository_offset += 1
         assigned = {(entry[1], entry[3]) for entry in self.active.values()}
-        ordered = repositories[offset:] + repositories[:offset]
+        ordered = ready[offset:] + ready[:offset]
+        ordered.sort(key=lambda repo: repo not in priority and now >= self.hot_until.get(repo, 0))
         with ThreadPoolExecutor(max_workers=8) as pool:
             for start in range(0, len(ordered), 8):
                 pending = {
@@ -160,10 +175,14 @@ class Controller:
                     try:
                         jobs = result.result()
                     except HTTPError as error:
-                        if error.code not in (404, 409):
+                        if error.code not in (403, 404, 409):
                             raise
                         LOG.info("Repository %s returned HTTP %d", repository, error.code)
+                        self.repository_checked[repository] = now
                         continue
+                    self.repository_checked[repository] = now
+                    if jobs:
+                        self.hot_until[repository] = now + 300
                     for job in jobs:
                         if (repository, job["id"]) in assigned:
                             continue
@@ -209,8 +228,8 @@ def main():
     for name in [config["instance"], *names]:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,29}", name):
             parser.error("Use lowercase letters, digits and hyphens for instance and slot names")
-    if config["poll_seconds"] <= 0:
-        parser.error("poll_seconds must be positive")
+    if min(config["poll_seconds"], config.get("active_poll_seconds", 10)) <= 0:
+        parser.error("Polling intervals must be positive")
     if config.get("engine", "docker") not in {"docker", "podman"}:
         parser.error("engine must be docker or podman")
 
@@ -227,11 +246,18 @@ def main():
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     while True:
+        delay = config.get("active_poll_seconds", 10)
+        started = time.monotonic()
         try:
             controller.cycle()
+        except RateLimited:
+            delay = max(1, app.rate_limited_until - time.time())
+            LOG.warning("GitHub API rate limit. Retrying in %.0f seconds", delay)
         except (HTTPError, URLError, OSError, subprocess.CalledProcessError) as error:
             LOG.warning("Polling failed: %s", error)
-        time.sleep(config["poll_seconds"])
+        else:
+            delay = max(0, delay - (time.monotonic() - started))
+        time.sleep(delay)
 
 
 if __name__ == "__main__":
