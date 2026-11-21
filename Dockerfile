@@ -19,6 +19,9 @@ RUN set -eux; \
     tar -xzf /tmp/node.tar.gz --strip-components=1 -C /opt/hostedtoolcache/node/$NODE_VERSION/x64; \
     rm /tmp/node.tar.gz; \
     touch /opt/hostedtoolcache/node/$NODE_VERSION/x64.complete
+RUN ln -s /opt/hostedtoolcache/node/$NODE_VERSION/x64/bin/node /usr/local/bin/node \
+    && ln -s /opt/hostedtoolcache/node/$NODE_VERSION/x64/bin/npm /usr/local/bin/npm \
+    && ln -s /opt/hostedtoolcache/node/$NODE_VERSION/x64/bin/npx /usr/local/bin/npx
 ARG NODE26_VERSION=26.13.1
 ARG NODE26_SHA256=ea9cdfe45ccc6781733f6d7577485b0bd688092db0e0d076dc478c3f59c42362
 RUN set -eux; \
