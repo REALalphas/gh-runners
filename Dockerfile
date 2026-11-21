@@ -42,7 +42,11 @@ RUN set -eu; \
     install -d /etc/nix; \
     printf '%s\n' 'experimental-features = nix-command flakes' 'build-users-group =' \
         'sandbox = false' 'max-jobs = 2' 'cores = 2' > /etc/nix/nix.conf; \
-    runuser -u gha -- nix --version
+    nix-env --profile /opt/cachix-profile --install --quiet --attr cachix \
+        --file https://cachix.org/api/v1/install; \
+    ln -s /opt/cachix-profile/bin/cachix /usr/local/bin/cachix; \
+    runuser -u gha -- nix --version; \
+    runuser -u gha -- cachix --version
 
 VOLUME ["/nix"]
 
