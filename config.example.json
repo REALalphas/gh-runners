@@ -3,6 +3,11 @@
   "installation_id": 67890,
   "key_path": "/path/to/github-app.pem",
   "engine": "docker",
+  "https_routes": [
+    "registry.npmjs.org",
+    "cache.nixos.org",
+    "channels.nixos.org"
+  ],
   "instance": "example",
   "image": "gh-runners:local",
   "poll_seconds": 120,
