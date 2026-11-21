@@ -113,7 +113,8 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
         "--security-opt", "no-new-privileges",
         "--dns", "1.1.1.1", "--dns", "9.9.9.9", "--read-only",
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
-        "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
+        # Toolchain installers such as rustup execute binaries from /tmp.
+        "--tmpfs", "/tmp:rw,exec,nosuid,nodev,mode=1777,size=512m",
         "--volume", "/runner", "--env", f"NIX_CONFIG={nix_config}",
         *https_route_args(https_routes), *device_args, *cargo_args, *cache_args, image,
     ], stdin=subprocess.PIPE)
