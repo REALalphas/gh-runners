@@ -1,4 +1,8 @@
 FROM nixos/nix:2.34.7@sha256:898e3874bc80a8fbd7df6001b6c83d6e0c904a942e3a4cdf8a89881458333cac AS nix
+
+# Keep the signed Cachix release in the store copied into the worker.
+RUN nix-store --realise /nix/store/5r4nmn8plfw8fa11rb4xjcv3fmw6vlgm-cachix-1.11.1-bin
+
 FROM ubuntu:24.04
 
 RUN apt-get update \
@@ -42,9 +46,7 @@ RUN set -eu; \
     install -d /etc/nix; \
     printf '%s\n' 'experimental-features = nix-command flakes' 'build-users-group =' \
         'sandbox = false' 'max-jobs = 2' 'cores = 2' > /etc/nix/nix.conf; \
-    nix-env --profile /opt/cachix-profile --install --quiet --attr cachix \
-        --file https://cachix.org/api/v1/install; \
-    ln -s /opt/cachix-profile/bin/cachix /usr/local/bin/cachix; \
+    ln -s /nix/store/5r4nmn8plfw8fa11rb4xjcv3fmw6vlgm-cachix-1.11.1-bin/bin/cachix /usr/local/bin/cachix; \
     runuser -u gha -- nix --version; \
     runuser -u gha -- cachix --version
 
