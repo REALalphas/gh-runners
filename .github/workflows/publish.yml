@@ -26,6 +26,8 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          target: worker
+          # TrueNAS runs the pool image. start-pool.sh imports the worker
+          # archive into the private Docker Engine at startup.
+          target: pool
           push: true
           tags: ${{ steps.image.outputs.tag }}

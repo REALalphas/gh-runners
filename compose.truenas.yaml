@@ -1,0 +1,32 @@
+services:
+  pool:
+    image: ghcr.io/realalphas/gh-runners:latest
+    pull_policy: always
+    platform: linux/amd64
+    restart: unless-stopped
+    # Общий бюджет всех заданий и внутреннего Docker Engine.
+    cpus: ${POOL_CPUS:-16}
+    mem_limit: &ram ${POOL_MEMORY:-32g}
+    memswap_limit: *ram
+    cgroup: private
+    privileged: true
+    stop_grace_period: 45s
+    environment:
+      GITHUB_REPOSITORIES: ${GITHUB_REPOSITORIES:-}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:?set GITHUB_APP_ID in .env.truenas}
+      GITHUB_INSTALLATION_ID: ${GITHUB_INSTALLATION_ID:?set GITHUB_INSTALLATION_ID in .env.truenas}
+      POLL_SECONDS: ${POLL_SECONDS:-20}
+      CACHE_ROOT: /cache
+    secrets:
+      - github_app_key
+    volumes:
+      - type: bind
+        source: ${TRUENAS_DATASET:?set TRUENAS_DATASET in .env.truenas}/engine
+        target: /var/lib/docker
+      - type: bind
+        source: ${TRUENAS_DATASET:?set TRUENAS_DATASET in .env.truenas}/cache
+        target: /cache
+
+secrets:
+  github_app_key:
+    file: ${TRUENAS_DATASET:?set TRUENAS_DATASET in .env.truenas}/github-app.pem

@@ -7,11 +7,11 @@
   "owner": "REALalphas",
   "platform": "Linux x64",
   "footer": [
-    "Python",
-    "Docker / Podman",
+    "Rust",
+    "Docker Engine",
     "GitHub App"
   ],
-  "description": "A GitHub Actions runner controller discovers queued jobs, matches labels, starts one-job runner containers and cleans up after each job. Powered by Python, Docker or Podman and a GitHub App.",
+  "description": "A Rust GitHub Actions runner pool discovers queued jobs, matches labels, starts one-job containers and cleans them up after each job. Runs on Docker Engine with a GitHub App.",
   "centerIcon": "layers",
   "cards": [
     {
