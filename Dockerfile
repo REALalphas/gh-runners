@@ -3,7 +3,7 @@ FROM nixos/nix:2.34.7@sha256:898e3874bc80a8fbd7df6001b6c83d6e0c904a942e3a4cdf8a8
 # Keep the signed Cachix release in the store copied into the worker.
 RUN nix-store --realise /nix/store/5r4nmn8plfw8fa11rb4xjcv3fmw6vlgm-cachix-1.11.1-bin
 
-FROM ubuntu:24.04
+FROM ubuntu:24.04 AS worker
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -60,7 +60,27 @@ RUN set -eux; \
     tar -xzf "/tmp/$archive" -C /opt/actions-runner; \
     rm "/tmp/$archive"
 
-COPY entrypoint.sh /usr/local/bin/runner-entrypoint
-COPY runner.nft /etc/runner.nft
+COPY worker/entrypoint.sh /usr/local/bin/runner-entrypoint
+COPY worker/runner.nft /etc/runner.nft
 RUN chmod 0755 /usr/local/bin/runner-entrypoint
 ENTRYPOINT ["/usr/local/bin/runner-entrypoint"]
+
+FROM rust:alpine AS build
+RUN apk add --no-cache musl-dev
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN cargo build --release --locked
+
+FROM docker:29-dind AS worker-archive
+RUN --mount=from=worker,source=/,target=/image \
+    set -eo pipefail; \
+    tar -C /image -cf - . | gzip -1 > /worker.tar.gz; \
+    sha256sum /worker.tar.gz | cut -d' ' -f1 > /worker.sha256
+
+FROM docker:29-dind AS pool
+COPY --from=build /src/target/release/gh-runner-pool /usr/local/bin/
+COPY --from=worker-archive /worker.tar.gz /worker.sha256 /opt/
+COPY --chmod=755 start-pool.sh /usr/local/bin/start-pool
+ENV DOCKER_HOST=unix:///var/run/docker.sock
+ENTRYPOINT ["docker-init", "--", "/usr/local/bin/start-pool"]

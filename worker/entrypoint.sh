@@ -2,6 +2,14 @@
 set -euo pipefail
 umask 077
 
+if [[ -v RUNNER_JIT_CONFIG ]]; then
+    jit_config=$RUNNER_JIT_CONFIG
+else
+    IFS= read -r jit_config
+fi
+unset RUNNER_JIT_CONFIG
+test -n "$jit_config"
+
 nft -f /etc/runner.nft
 for address in ${RUNNER_HTTPS_ROUTE_IPS:-}; do
     nft insert rule inet runner output ip daddr "$address" tcp dport 443 accept
@@ -40,13 +48,23 @@ as_runner=(setpriv --reuid=gha --regid=gha "${groups[@]}"
             mkdir -p "${CARGO_HOME:-$HOME/.cargo}/registry" /cache/cargo-registry
             ln -s /cache/cargo-registry "${CARGO_HOME:-$HOME/.cargo}/registry/cache"
         fi
-        if [[ -n ${CARGO_TARGET_DIR:-} ]]; then
-            mkdir -p "$CARGO_TARGET_DIR"
-        fi
     fi
 '
 
-IFS= read -r jit_config
-test -n "$jit_config"
 "${as_runner[@]}" cp -R /opt/actions-runner/. .
-exec "${as_runner[@]}" ./run.sh --jitconfig "$jit_config" </dev/null
+export ACTIONS_RUNNER_INPUT_JITCONFIG="$jit_config"
+exec "${as_runner[@]}" bash -eu -c '
+    if [[ ${CARGO_TARGET_DIR:-} == /cache/cargo-target ]]; then
+        # Hold the directory lock through run.sh for the worker lifetime.
+        exec 9</cache
+        if flock -n -E 75 9; then
+            mkdir -p "$CARGO_TARGET_DIR"
+        else
+            status=$?
+            [[ $status == 75 ]] || exit "$status"
+            exec 9<&-
+            unset CARGO_TARGET_DIR
+        fi
+    fi
+    exec ./run.sh
+' </dev/null

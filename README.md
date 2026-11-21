@@ -1,91 +1,82 @@
-# GitHub Runners Controller
+# Контейнерный пул GitHub Actions
 
-![gh-runners — ephemeral self-hosted runners for GitHub Actions](assets/banner.png)
+![gh-runners — одноразовые раннеры GitHub Actions](assets/banner.png)
 
-A small controller that starts one-job GitHub Actions runners. It finds queued jobs through a GitHub App, selects a free slot with matching labels, and starts a fresh container for each runner.
+Один сервис Docker Compose обслуживает очередь GitHub App. Rust-контроллер запускает Linux x64 контейнер под конкретный профиль. GitHub отдаёт ему одно задание, после завершения контейнер и его рабочий каталог удаляются. В образе есть Node.js, Nix и Cachix.
 
-## 1. Create a GitHub App
+## Запуск
 
-In GitHub, open **Settings → Developer settings → GitHub Apps → New GitHub App**. Disable webhooks and choose **Only on this account**. Set the following **Repository permissions**.
+Нужен Linux x86-64 с cgroup v2, Docker Engine и Docker Compose v2. На хосте должно быть хотя бы столько логических CPU, сколько указано в `cpus`.
 
-| Permission | Access |
-| --- | --- |
-| Actions | Read-only |
-| Administration | Read and write |
-| Contents | Read-only |
-| Metadata | Read-only |
+1. В GitHub открой **Settings → Developer settings → GitHub Apps**. У приложения отключи webhook и выдай права репозитория **Actions → Read-only** и **Administration → Read and write**. Установи приложение в репозитории, для которых нужен пул. Если приложение уже настроено, используй его.
+2. Скачай PEM через **Generate a private key**. Из корня репозитория выполни:
 
-Install the App on your account or organization. Use **All repositories** if the controller should also discover repositories you create later. To limit its access, select the repositories that use these runners.
+   ```sh
+   install -d -m 700 .secrets
+   install -m 600 ~/Downloads/your-app.pem .secrets/github-app.pem
+   ```
 
-Contents access lets the controller inspect private workflow files. If the installation cannot read them, it checks the queue of each private repository with active workflows.
+3. В `compose.yaml` укажи `GITHUB_APP_ID` из настроек приложения и `GITHUB_INSTALLATION_ID` из конца URL страницы **Configure** установленного приложения. Там же задай **весь бюджет пула** в `cpus` и `mem_limit`. По умолчанию это 16 CPU и 32 ГиБ. Пустой `GITHUB_REPOSITORIES` охватывает установку целиком. Для одного или нескольких репозиториев укажи, например, `"owner/api,owner/web"`.
+4. Запусти пул:
 
-Copy the **App ID** from the App's settings. Find the **installation ID** at the end of the URL on the installation's **Configure** page. Generate a private key and store the PEM file outside the checkout with mode `0600`. The account running the controller must be able to read it.
+   ```sh
+   docker compose up -d --build
+   docker compose logs -f pool
+   ```
 
-## 2. Get a worker image
+Compose собирает контроллер и образ воркера. При первом старте сервис загружает готовый образ в свой Docker Engine. Том `engine` сохраняет его для последующих запусков. Строка `Polling GitHub` означает, что контроллер начал опрос.
 
-Use a Linux x86-64 host with Docker, Python 3.11 or newer, and OpenSSL. Run commands from the checkout.
+## Как выбрать воркер
 
-Build locally with Docker.
+| Профиль | CPU | RAM, ГиБ | Вычислительный профиль | CPU | RAM, ГиБ |
+| --- | ---: | ---: | --- | ---: | ---: |
+| `tiny` | 1 | 2 | `tiny-compute` | 1 | 1 |
+| `small` | 2 | 4 | `small-compute` | 2 | 2 |
+| `medium` | 4 | 8 | `medium-compute` | 4 | 4 |
+| `large` | 8 | 16 | `large-compute` | 8 | 8 |
+| `huge` | 16 | 32 | `huge-compute` | 16 | 16 |
 
-~~~sh
-docker build -t gh-runners:local .
-~~~
+В существующем workflow достаточно поменять `runs-on`. Готовый пример для ручной проверки:
 
-You can also pull a published image. Set `OWNER` to the lowercase repository owner.
-
-~~~sh
-OWNER=your-github-owner
-docker pull "ghcr.io/$OWNER/gh-runners:latest"
-~~~
-
-For a private package, authenticate with a token that has `read:packages` and access to that package. Set `GHCR_USER` and `GHCR_TOKEN` in your secret store or shell environment before running one of these commands.
-
-~~~sh
-printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
-~~~
-
-The GitHub Actions publish workflow builds the same image for GitHub Container Registry. Pin a published image by digest for repeatable deployments.
-
-## 3. Start the controller
-
-~~~sh
-cp config.example.json config.json
-chmod 600 config.json
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/python controller.py config.json
-~~~
-
-Before starting, edit `config.json`.
-
-- Set `app_id`, `installation_id`, and `key_path` from step 1.
-- Set `engine` to `docker`.
-- Set `image` to the local tag or the published image reference from step 2.
-- Give each slot a unique name. Set its label, CPU quota, and memory limit. Keep distinct instance names when running separate controllers against the same container engine.
-- Optionally set `cache_root` to an absolute path on the container host and create a directory under it for each slot. The controller persists npm package content per repository. Slots with `cargo_build_jobs` also reuse Cargo registry archives. Set a filesystem quota of 10 GiB on each slot directory to bound disk use.
-- `cargo_build_jobs` sets the worker default. Environment variables in individual workflows take precedence. Enable `cache_private_cargo_targets` to reuse compiled output for private repositories with fork workflows disabled. Use `cargo_target_cache_repositories` only for repositories where all jobs can trust each other's build artifacts.
-- Set `nix_config` on a slot for Nix build settings such as `cores`. The controller appends any `repository_nix_config` settings and passes both through `NIX_CONFIG`.
-- Set `nix_binary_cache` to the absolute host path of a local Nix binary cache populated with signed artifacts. Workers access it through a read-only mount.
-- When slots are free, the controller checks default-branch workflow files every 10 minutes to identify repositories using this pool. It checks those repositories for active runs every minute and checks jobs in active runs every 10 seconds. The intervals are configurable.
-
-Include the runner labels in a default-branch workflow to discover a repository whose first self-hosted jobs are on a feature branch. Workflows with computed labels or external reusable workflows also stay eligible for queue checks.
-
-The process needs permission to invoke the container engine. For unattended operation, use a service manager to restart the controller after a reboot. With systemd, set `KillMode=process` so restarting the controller leaves active container clients running. Use GitHub Actions to cancel an active job.
-
-## 4. Try a workflow
-
-Save this workflow in `.github/workflows/runner-smoke.yml` in a repository covered by the App installation. Open the **Actions** tab and select **Run workflow**.
-
-~~~yaml
-name: Runner smoke test
+```yaml
+name: Pool smoke test
 on: workflow_dispatch
 jobs:
   smoke:
-    runs-on: [self-hosted, small]
+    runs-on: [self-hosted, small-compute]
     steps:
-      - run: echo "Runner is ready"
-~~~
+      - run: |
+          id
+          cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max
+```
 
-Use `runs-on: [self-hosted, large-compute]` for a slot with the `large-compute` label. If a job stays queued, verify the App installation includes the repository and the labels in the workflow match a free slot in `config.json`.
+Поддерживаются также `runs-on: small-compute` и дополнительные метки `Linux`, `X64`. Для `runs-on: self-hosted` подойдёт любой ожидающий воркер, а при необходимости контроллер запустит `tiny`. GitHub назначает работу по совпадающим меткам, поэтому явный профиль нужен, когда важен размер контейнера.
 
-Use a dedicated execution host for jobs you trust. Keep the App private key and container-engine socket on the controller side. Review workflows before allowing pull-request jobs to run on self-hosted infrastructure.
+## Как делится бюджет
+
+- Для запуска нужны все CPU выбранного профиля. Лимит RAM воркера равен меньшему из двух значений — RAM профиля и свободной памяти пула. При остатке ниже 6 МиБ запуск ждёт следующего опроса. Профиль с числом CPU больше всего пула останется в очереди.
+- Новый или ожидающий назначения воркер резервирует выделенные ресурсы. Когда он занят и прошла первая минута после создания, контроллер учитывает фактическое потребление процессора. Свободную RAM он берёт из общей cgroup с учётом занятой памяти и вытесняемого файлового кеша. Каждый запуск сразу уменьшает остаток текущего прохода.
+- Например, если при работающем `huge` свободны **6 CPU и 10 ГиБ**, в этом проходе стартуют до **шести `tiny-compute`**. Если для `huge` свободны 16 CPU и только 10 ГиБ, он получит лимит **10 ГиБ**.
+- Вложенный Docker Engine и все воркеры вместе подчиняются лимитам сервиса. При росте нагрузки ядро ограничивает CPU. При исчерпании памяти ядро может завершить процесс по OOM. Оставь запас, если задания чувствительны к пикам RAM.
+
+## Эксплуатация
+
+`docker compose logs -f pool` показывает репозиторий, ID задания, профиль и выданные лимиты. Если задание ждёт, проверь совпадение меток, бюджет CPU и доступ приложения к репозиторию. Опрос активных репозиториев по умолчанию идёт раз в 20 секунд, простаивающих — реже. Список репозиториев установки обновляется раз в 10 минут.
+
+Для обновления повтори `docker compose up -d --build`. Для остановки — `docker compose down`. Перезапуск всего сервиса останавливает и вложенный Engine, поэтому при обновлении дождись окончания активных заданий. При переходе со старого контроллера сначала дай его воркерам завершиться, останови процесс Python и перенеси App ID, installation ID и PEM. Список слотов заменяют два лимита Compose.
+
+Сервису `pool` нужен `privileged` для собственного Docker Engine. Его сокет доступен внутри сервиса. Задания запускаются от пользователя `gha`, с отдельным сетевым фильтром, без ключа GitHub App и сокета Docker. Используй пул для кода, которому доверяешь.
+
+### Дополнительные настройки
+
+Все параметры задаются в `services.pool.environment` того же Compose-файла.
+
+| Параметр | Назначение |
+| --- | --- |
+| `CACHE_ROOT` | Абсолютный каталог кеша npm и архивов Cargo. Примонтируй постоянный том в этот каталог сервиса. Подкаталоги разделены по репозиториям. |
+| `CARGO_TARGET_CACHE_REPOSITORIES` | Список доверенных `owner/repo` через запятую для повторного использования Cargo target. Требует `CACHE_ROOT`. При конкуренции за кеш соседний воркер использует свой target. |
+| `CACHE_PRIVATE_CARGO_TARGETS` | Значение `"true"` включает кеш target для приватных репозиториев после проверки, что задания из fork PR отключены. |
+| `NIX_BINARY_CACHE` | Каталог подписанного бинарного кеша с `nix-cache-info`. Примонтируй его в сервис с `:ro`. |
+| `NIX_CONFIG`, `REPOSITORY_NIX_CONFIG` | Общие настройки Nix и JSON-объект строк настроек по ключу `owner/repo`. По умолчанию `cores` и `CARGO_BUILD_JOBS` соответствуют профилю. |
+| `KVM_REPOSITORIES` | Список доверенных репозиториев, которым нужен доступ к `/dev/kvm`. На хосте должно быть это устройство. |
+| `HTTPS_ROUTES` | Имена хостов, для которых разрешён HTTPS через синтетические IPv4-адреса из `198.18.0.0/15`. |
