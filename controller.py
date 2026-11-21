@@ -93,7 +93,7 @@ def npm_cache_args(cache_root, slot_name, repository):
 
 
 def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm=False,
-           cache_args=(), nix_config="", cargo_target_cache=False):
+           cache_args=(), nix_config="", cargo_target_cache=False, nix_binary_cache=None):
     device_args = []
     if kvm:
         gid = Path("/dev/kvm").stat().st_gid
@@ -103,6 +103,12 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
         cargo_args.extend(["--env", f"CARGO_BUILD_JOBS={slot['cargo_build_jobs']}"])
     if cache_args and cargo_target_cache and slot.get("cargo_build_jobs"):
         cargo_args.extend(["--env", "CARGO_TARGET_DIR=/cache/cargo-target"])
+    nix_settings = [slot.get("nix_config", ""), nix_config]
+    nix_cache_args = []
+    if nix_binary_cache:
+        nix_cache_args = ["--mount", f"type=bind,src={nix_binary_cache},dst=/nix-cache,readonly"]
+        nix_settings.append("extra-substituters = file:///nix-cache?priority=10")
+    nix_config = "\n".join(filter(None, nix_settings))
     process = subprocess.Popen([
         engine, "run", "--rm", "--interactive", "--init", "--sig-proxy=false", "--name", name,
         "--label", f"gh-runners.instance={instance}",
@@ -116,7 +122,7 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
         # Toolchain installers such as rustup execute binaries from /tmp.
         "--tmpfs", "/tmp:rw,exec,nosuid,nodev,mode=1777,size=512m",
         "--volume", "/runner", "--env", f"NIX_CONFIG={nix_config}",
-        *https_route_args(https_routes), *device_args, *cargo_args, *cache_args, image,
+        *https_route_args(https_routes), *device_args, *cargo_args, *cache_args, *nix_cache_args, image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
@@ -311,6 +317,7 @@ class Controller:
                 self.config.get("repository_nix_config", {}).get(repository, ""),
                 repository in self.private_target_caches
                 or repository in self.config.get("cargo_target_cache_repositories", ()),
+                nix_binary_cache=self.config.get("nix_binary_cache"),
             )
         except OSError:
             self.delete_runner(repository, runner_id)
@@ -335,6 +342,10 @@ def main():
         parser.error("Polling intervals must be positive")
     if config.get("engine", "docker") not in {"docker", "podman"}:
         parser.error("engine must be docker or podman")
+    if cache := config.get("nix_binary_cache"):
+        path = Path(cache)
+        if not path.is_absolute() or not (path / "nix-cache-info").is_file():
+            parser.error("nix_binary_cache must be an absolute path to a local Nix binary cache")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     app = GitHubApp(config["app_id"], config["installation_id"], config["key_path"])

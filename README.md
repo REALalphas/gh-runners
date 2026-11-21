@@ -64,7 +64,8 @@ Before starting, edit `config.json`.
 - Give each slot a unique name. Set its label, CPU quota, and memory limit. Keep distinct instance names when running separate controllers against the same container engine.
 - Optionally set `cache_root` to an absolute path on the container host and create a directory under it for each slot. The controller persists npm package content per repository. Slots with `cargo_build_jobs` also reuse Cargo registry archives. Set a filesystem quota of 10 GiB on each slot directory to bound disk use.
 - `cargo_build_jobs` sets the worker default. Environment variables in individual workflows take precedence. Enable `cache_private_cargo_targets` to reuse compiled output for private repositories with fork workflows disabled. Use `cargo_target_cache_repositories` only for repositories where all jobs can trust each other's build artifacts.
-- Use `repository_nix_config` to supply per-repository Nix settings, such as a signed binary cache. The controller passes these settings through `NIX_CONFIG`.
+- Set `nix_config` on a slot for Nix build settings such as `cores`. The controller appends any `repository_nix_config` settings and passes both through `NIX_CONFIG`.
+- Set `nix_binary_cache` to the absolute host path of a local Nix binary cache populated with signed artifacts. Workers access it through a read-only mount.
 - When slots are free, the controller checks default-branch workflow files every 10 minutes to identify repositories using this pool. It checks those repositories for active runs every minute and checks jobs in active runs every 10 seconds. The intervals are configurable.
 
 Include the runner labels in a default-branch workflow to discover a repository whose first self-hosted jobs are on a feature branch. Workflows with computed labels or external reusable workflows also stay eligible for queue checks.

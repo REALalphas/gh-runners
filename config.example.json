@@ -16,6 +16,7 @@
   "cargo_target_cache_repositories": [],
   "cache_private_cargo_targets": false,
   "cache_root": null,
+  "nix_binary_cache": null,
   "slots": [
     {
       "name": "small-1",
@@ -47,7 +48,8 @@
       "cpus": 8,
       "memory": "8g",
       "kvm_repositories": [],
-      "cargo_build_jobs": 8
+      "cargo_build_jobs": 8,
+      "nix_config": "max-jobs = 2\ncores = 8"
     },
     {
       "name": "large-compute-2",
@@ -55,7 +57,8 @@
       "cpus": 8,
       "memory": "8g",
       "kvm_repositories": [],
-      "cargo_build_jobs": 8
+      "cargo_build_jobs": 8,
+      "nix_config": "max-jobs = 2\ncores = 8"
     }
   ]
 }
