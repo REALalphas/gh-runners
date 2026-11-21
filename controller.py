@@ -82,6 +82,7 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
         "--volume", "/runner", "--env", f"NIX_CONFIG={nix_config}",
+        "--env", "CARGO_HOME=/cache/cargo", "--env", "CARGO_TARGET_DIR=/cache/target",
         *https_route_args(https_routes), *device_args, *cache_args, image,
     ], stdin=subprocess.PIPE)
     try:

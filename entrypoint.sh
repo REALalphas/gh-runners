@@ -9,10 +9,11 @@ done
 unset RUNNER_HTTPS_ROUTE_IPS
 mkdir -p -m 0700 /runner/home /runner/actions
 if mountpoint -q /cache; then
-    chown gha:gha /cache
+    mkdir -p /cache/cargo /cache/target
     mkdir -p /runner/home/.npm
     ln -s /cache /runner/home/.npm/_cacache
     chown gha:gha /runner/home/.npm
+    chown gha:gha /cache/cargo /cache/target /cache
 fi
 chown gha:gha /runner/home /runner/actions
 groups=(--clear-groups)
