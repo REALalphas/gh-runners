@@ -2,6 +2,7 @@
   "app_id": 12345,
   "installation_id": 67890,
   "key_path": "/path/to/github-app.pem",
+  "engine": "docker",
   "instance": "example",
   "image": "gh-runners:local",
   "poll_seconds": 120,

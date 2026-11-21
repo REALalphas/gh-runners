@@ -23,25 +23,26 @@ def matches(labels, slot_label):
     return requested <= DEFAULT_LABELS | {slot_label.lower()}
 
 
-def containers(instance):
+def containers(instance, engine):
     output = subprocess.check_output(
-        ["docker", "ps", "--all", "--filter", f"label=gh-runners.instance={instance}",
+        [engine, "ps", "--all", "--filter", f"label=gh-runners.instance={instance}",
          "--format", '{{.Names}}'], text=True,
     )
     return set(output.splitlines())
 
 
-def launch(image, instance, slot, name, jit_config):
+def launch(engine, image, instance, slot, name, jit_config):
     process = subprocess.Popen([
-        "docker", "run", "--rm", "--interactive", "--init", "--name", name,
+        engine, "run", "--rm", "--interactive", "--init", "--name", name,
         "--label", f"gh-runners.instance={instance}",
         "--cpus", str(slot["cpus"]), "--memory", slot["memory"],
         "--memory-swap", slot["memory"], "--pids-limit", "2048",
-        "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE",
-        "--cap-add", "FOWNER", "--cap-add", "NET_ADMIN", "--cap-add", "SETPCAP",
+        "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "NET_ADMIN", "--cap-add", "SETPCAP",
         "--cap-add", "SETGID", "--cap-add", "SETUID",
         "--security-opt", "no-new-privileges",
-        "--dns", "1.1.1.1", "--dns", "9.9.9.9", image,
+        "--dns", "1.1.1.1", "--dns", "9.9.9.9", "--read-only",
+        "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,size=512m", image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
@@ -77,7 +78,8 @@ class Controller:
     def cycle(self):
         self.reap()
         instance = self.config["instance"]
-        existing = containers(instance)
+        engine = self.config.get("engine", "docker")
+        existing = containers(instance, engine)
         free = [
             slot for slot in self.config["slots"]
             if slot["name"] not in self.active
@@ -120,7 +122,7 @@ class Controller:
             ["self-hosted", "Linux", "X64", slot["label"]],
         )
         try:
-            process = launch(self.config["image"], instance, slot, name, jit_config)
+            process = launch(self.config.get("engine", "docker"), self.config["image"], instance, slot, name, jit_config)
         except OSError:
             self.delete_runner(repository, runner_id)
             raise
@@ -141,6 +143,8 @@ def main():
             parser.error("Use lowercase letters, digits and hyphens for instance and slot names")
     if config["poll_seconds"] <= 0:
         parser.error("poll_seconds must be positive")
+    if config.get("engine", "docker") not in {"docker", "podman"}:
+        parser.error("engine must be docker or podman")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     app = GitHubApp(config["app_id"], config["installation_id"], config["key_path"])
