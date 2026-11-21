@@ -7,11 +7,11 @@ for address in ${RUNNER_HTTPS_ROUTE_IPS:-}; do
     nft insert rule inet runner output ip daddr "$address" tcp dport 443 accept
 done
 unset RUNNER_HTTPS_ROUTE_IPS
-mkdir -p -m 0700 /runner/home /runner/actions /runner/tools
+mkdir -p -m 0700 /runner/home /runner/tools
 if mountpoint -q /cache; then
     chown gha:gha /cache
 fi
-chown gha:gha /runner/home /runner/actions /runner/tools
+chown gha:gha /runner/home /runner/tools
 groups=(--clear-groups)
 if [[ -n ${RUNNER_KVM_GID:-} ]]; then
     groups=(--groups "$RUNNER_KVM_GID")
@@ -19,9 +19,10 @@ if [[ -n ${RUNNER_KVM_GID:-} ]]; then
 fi
 unset RUNNER_KVM_GID
 export RUNNER_MANUALLY_TRAP_SIG=1
+# Keep the workspace under HOME at the same depth as on GitHub-hosted runners.
 as_runner=(setpriv --reuid=gha --regid=gha "${groups[@]}"
            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs
-           env --chdir=/runner/actions HOME=/runner/home
+           env --chdir=/runner/home HOME=/runner/home
            RUNNER_TOOL_CACHE=/runner/tools PATH=/runner/tools/node/26.13.1/x64/bin:/runner/tools/node/24.22.3/x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)
 
 "${as_runner[@]}" bash -eu -c '

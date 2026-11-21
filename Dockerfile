@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        bzip2 ca-certificates curl git gnupg libicu74 libkrb5-3 libssl3t64 nftables unzip util-linux xz-utils zlib1g \
+        bzip2 ca-certificates curl git gnupg jq libatomic1 libicu74 libkrb5-3 libssl3t64 nftables unzip util-linux xz-utils zlib1g zstd \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 gha \
     && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha
@@ -31,6 +31,7 @@ RUN set -eux; \
     echo "$NODE26_SHA256  /tmp/node26.tar.gz" | sha256sum -c; \
     tar -xzf /tmp/node26.tar.gz --strip-components=1 -C /opt/hostedtoolcache/node/$NODE26_VERSION/x64; \
     rm /tmp/node26.tar.gz; \
+    "/opt/hostedtoolcache/node/$NODE26_VERSION/x64/bin/node" --version; \
     touch /opt/hostedtoolcache/node/$NODE26_VERSION/x64.complete
 RUN set -eu; \
     nix_bin="$(find /nix/store -path '*/bin/nix' -type f -print -quit)"; \
