@@ -30,8 +30,5 @@
       "cpus": 8,
       "memory": "8g"
     }
-  ],
-  "https_routes": [
-    "registry.npmjs.org"
   ]
 }
