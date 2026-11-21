@@ -1,0 +1,19 @@
+name: Runner smoke test
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  smoke:
+    strategy:
+      matrix:
+        slot: [small, large-compute]
+    runs-on: [self-hosted, "${{ matrix.slot }}"]
+    timeout-minutes: 5
+    steps:
+      - run: |
+          test "$(id -u)" -ne 0
+          test -w "$GITHUB_WORKSPACE"
+          curl --fail --silent --output /dev/null https://api.github.com/

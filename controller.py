@@ -92,6 +92,7 @@ class Controller:
         repositories = sorted(
             repo["full_name"] for repo in self.app.repositories()
             if not repo["archived"] and not repo["disabled"]
+            and ("repositories" not in self.config or repo["full_name"] in self.config["repositories"])
         )
         if not repositories:
             return
