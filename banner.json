@@ -1,0 +1,38 @@
+{
+  "title": "gh-runners",
+  "subtitle": [
+    "Ephemeral self-hosted runners",
+    "for GitHub Actions"
+  ],
+  "owner": "REALalphas",
+  "platform": "Linux x64",
+  "footer": [
+    "Python",
+    "Docker / Podman",
+    "GitHub App"
+  ],
+  "description": "A GitHub Actions runner controller discovers queued jobs, matches labels, starts one-job runner containers and cleans up after each job. Powered by Python, Docker or Podman and a GitHub App.",
+  "centerIcon": "layers",
+  "cards": [
+    {
+      "label": "queued jobs",
+      "palette": "blue",
+      "icon": "arrow"
+    },
+    {
+      "label": "match labels",
+      "palette": "purple",
+      "icon": "swap"
+    },
+    {
+      "label": "start runner",
+      "palette": "coral",
+      "icon": "bolt"
+    },
+    {
+      "label": "cleanup",
+      "palette": "yellow",
+      "icon": "cross"
+    }
+  ]
+}

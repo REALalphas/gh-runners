@@ -1,5 +1,7 @@
 # GitHub Runners Controller
 
+![gh-runners — ephemeral self-hosted runners for GitHub Actions](assets/banner.png)
+
 A small controller that starts one-job GitHub Actions runners. It finds queued jobs through a GitHub App, selects a free slot with matching labels, and starts a fresh container for each runner.
 
 ## 1. Create a GitHub App
