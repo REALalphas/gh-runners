@@ -2,6 +2,7 @@
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from hashlib import sha256
 from ipaddress import IPv4Address, IPv4Network
 import json
 import logging
@@ -54,7 +55,17 @@ def https_route_args(hostnames):
     return args
 
 
-def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm=False):
+def npm_cache_args(cache_root, slot_name, repository):
+    if not cache_root:
+        return []
+    namespace = sha256(repository.lower().encode()).hexdigest()
+    directory = Path(cache_root) / slot_name / namespace
+    directory.mkdir(mode=0o700, exist_ok=True)
+    return ["--mount", f"type=bind,src={directory},dst=/cache"]
+
+
+def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm=False,
+           cache_args=(), nix_config=""):
     device_args = []
     if kvm:
         gid = Path("/dev/kvm").stat().st_gid
@@ -70,7 +81,8 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
         "--dns", "1.1.1.1", "--dns", "9.9.9.9", "--read-only",
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
-        "--volume", "/runner", *https_route_args(https_routes), *device_args, image,
+        "--volume", "/runner", "--env", f"NIX_CONFIG={nix_config}",
+        *https_route_args(https_routes), *device_args, *cache_args, image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
@@ -165,6 +177,7 @@ class Controller:
     def start(self, repository, slot, job_id):
         instance = self.config["instance"]
         name = f"gh-runner-{instance}-{slot['name']}"
+        cache_args = npm_cache_args(self.config.get("cache_root"), slot["name"], repository)
         runner_id, jit_config = self.app.create_runner(
             repository, f"{slot['name']}-{uuid4().hex[:8]}",
             ["self-hosted", "Linux", "X64", slot["label"]],
@@ -174,6 +187,8 @@ class Controller:
                 self.config.get("engine", "docker"), self.config["image"], instance, slot,
                 name, jit_config, self.config.get("https_routes", ()),
                 repository in slot.get("kvm_repositories", ()),
+                cache_args,
+                self.config.get("repository_nix_config", {}).get(repository, ""),
             )
         except OSError:
             self.delete_runner(repository, runner_id)

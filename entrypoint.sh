@@ -9,10 +9,16 @@ done
 unset RUNNER_HTTPS_ROUTE_IPS
 mkdir -p -m 0700 /runner/home /runner/actions
 chown gha:gha /runner/home /runner/actions
+if mountpoint -q /cache; then
+    chown gha:gha /cache
+    mkdir -p /runner/home/.npm
+    ln -s /cache /runner/home/.npm/_cacache
+    chown gha:gha /runner/home/.npm
+fi
 groups=(--clear-groups)
 if [[ -n ${RUNNER_KVM_GID:-} ]]; then
     groups=(--groups "$RUNNER_KVM_GID")
-    export NIX_CONFIG='extra-system-features = kvm nixos-test'
+    export NIX_CONFIG="${NIX_CONFIG:+$NIX_CONFIG$'\n'}extra-system-features = kvm nixos-test"
 fi
 unset RUNNER_KVM_GID
 export RUNNER_MANUALLY_TRAP_SIG=1

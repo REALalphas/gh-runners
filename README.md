@@ -57,6 +57,8 @@ Before starting, edit `config.json`.
 - Set `engine` to `docker`.
 - Set `image` to the local tag or the published image reference from step 2.
 - Give each slot a unique name. Set its label, CPU quota, and memory limit. Keep distinct instance names when running separate controllers against the same container engine.
+- Optionally set `cache_root` to an absolute path on the container host and create a directory under it for each slot. The controller mounts only npm's content cache, separated by repository. Set a filesystem quota of 10 GiB on each slot directory if you want to bound disk use.
+- Use `repository_nix_config` to supply per-repository Nix settings, such as a signed binary cache. The controller passes these settings through `NIX_CONFIG`.
 - Keep the default poll interval to start. A shorter interval makes more GitHub API requests.
 
 The process needs permission to invoke the container engine. For unattended operation, use a service manager to restart the controller after a reboot. With systemd, set `KillMode=process` so restarting the controller leaves active container clients running. Use GitHub Actions to cancel an active job.
