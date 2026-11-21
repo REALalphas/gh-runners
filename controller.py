@@ -1,6 +1,7 @@
 """Assign queued GitHub Actions jobs to short-lived Docker runners."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ipaddress import IPv4Address, IPv4Network
 import json
 import logging
@@ -53,19 +54,23 @@ def https_route_args(hostnames):
     return args
 
 
-def launch(engine, image, instance, slot, name, jit_config, https_routes=()):
+def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm=False):
+    device_args = []
+    if kvm:
+        gid = Path("/dev/kvm").stat().st_gid
+        device_args = ["--device", "/dev/kvm:/dev/kvm:rw", "--env", f"RUNNER_KVM_GID={gid}"]
     process = subprocess.Popen([
-        engine, "run", "--rm", "--interactive", "--init", "--name", name,
+        engine, "run", "--rm", "--interactive", "--init", "--sig-proxy=false", "--name", name,
         "--label", f"gh-runners.instance={instance}",
         "--cpus", str(slot["cpus"]), "--memory", slot["memory"],
         "--memory-swap", slot["memory"], "--pids-limit", "2048",
         "--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "NET_ADMIN", "--cap-add", "SETPCAP",
-        "--cap-add", "SETGID", "--cap-add", "SETUID",
+        "--cap-add", "SETGID", "--cap-add", "SETUID", "--cap-add", "KILL",
         "--security-opt", "no-new-privileges",
         "--dns", "1.1.1.1", "--dns", "9.9.9.9", "--read-only",
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
-        "--volume", "/runner", *https_route_args(https_routes), image,
+        "--volume", "/runner", *https_route_args(https_routes), *device_args, image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
@@ -121,22 +126,32 @@ class Controller:
         offset = self.repository_offset % len(repositories)
         self.repository_offset += 1
         assigned = {(entry[1], entry[3]) for entry in self.active.values()}
-        for repository in repositories[offset:] + repositories[:offset]:
-            try:
-                for job in self.app.queued_jobs(repository):
-                    if (repository, job["id"]) in assigned:
+        ordered = repositories[offset:] + repositories[:offset]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            for start in range(0, len(ordered), 8):
+                pending = {
+                    pool.submit(lambda repo: list(self.app.queued_jobs(repo)), repository): repository
+                    for repository in ordered[start:start + 8]
+                }
+                for result in as_completed(pending):
+                    repository = pending[result]
+                    try:
+                        jobs = result.result()
+                    except HTTPError as error:
+                        if error.code not in (404, 409):
+                            raise
+                        LOG.info("Repository %s returned HTTP %d", repository, error.code)
                         continue
-                    slot = next((slot for slot in free if matches(job["labels"], slot["label"])), None)
-                    if slot is None:
-                        continue
-                    self.start(repository, slot, job["id"])
-                    free.remove(slot)
-                    if not free:
-                        return
-            except HTTPError as error:
-                if error.code not in (404, 409):
-                    raise
-                LOG.info("Repository %s returned HTTP %d", repository, error.code)
+                    for job in jobs:
+                        if (repository, job["id"]) in assigned:
+                            continue
+                        slot = next((slot for slot in free if matches(job["labels"], slot["label"])), None)
+                        if slot is None:
+                            continue
+                        self.start(repository, slot, job["id"])
+                        free.remove(slot)
+                        if not free:
+                            return
 
     def start(self, repository, slot, job_id):
         instance = self.config["instance"]
@@ -149,6 +164,7 @@ class Controller:
             process = launch(
                 self.config.get("engine", "docker"), self.config["image"], instance, slot,
                 name, jit_config, self.config.get("https_routes", ()),
+                repository in slot.get("kvm_repositories", ()),
             )
         except OSError:
             self.delete_runner(repository, runner_id)

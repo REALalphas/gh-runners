@@ -4,6 +4,7 @@ import base64
 from datetime import datetime
 import json
 import subprocess
+from threading import Lock
 import time
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
@@ -21,6 +22,7 @@ class GitHubApp:
         self.openssl = openssl
         self._token = None
         self._expires_at = 0
+        self._token_lock = Lock()
 
     def _jwt(self):
         now = int(time.time())
@@ -54,14 +56,15 @@ class GitHubApp:
             return (json.loads(body) if body else None), response.headers
 
     def _installation_token(self):
-        if time.time() >= self._expires_at - 60:
-            data, _ = self._request(
-                f"/app/installations/{self.installation_id}/access_tokens",
-                self._jwt(), "POST", {},
-            )
-            self._token = data["token"]
-            self._expires_at = datetime.fromisoformat(data["expires_at"]).timestamp()
-        return self._token
+        with self._token_lock:
+            if time.time() >= self._expires_at - 60:
+                data, _ = self._request(
+                    f"/app/installations/{self.installation_id}/access_tokens",
+                    self._jwt(), "POST", {},
+                )
+                self._token = data["token"]
+                self._expires_at = datetime.fromisoformat(data["expires_at"]).timestamp()
+            return self._token
 
     def permissions(self):
         jwt = self._jwt()

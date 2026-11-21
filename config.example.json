@@ -28,7 +28,8 @@
       "name": "large-compute-1",
       "label": "large-compute",
       "cpus": 8,
-      "memory": "8g"
+      "memory": "8g",
+      "kvm_repositories": []
     }
   ]
 }

@@ -9,7 +9,13 @@ done
 unset RUNNER_HTTPS_ROUTE_IPS
 mkdir -p -m 0700 /runner/home /runner/actions
 chown gha:gha /runner/home /runner/actions
-as_runner=(setpriv --reuid=gha --regid=gha --clear-groups
+groups=(--clear-groups)
+if [[ -n ${RUNNER_KVM_GID:-} ]]; then
+    groups=(--groups "$RUNNER_KVM_GID")
+    export NIX_CONFIG='extra-system-features = kvm nixos-test'
+fi
+unset RUNNER_KVM_GID
+as_runner=(setpriv --reuid=gha --regid=gha "${groups[@]}"
            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs
            env --chdir=/runner/actions HOME=/runner/home)
 
