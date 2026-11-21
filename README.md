@@ -1,43 +1,81 @@
 # GitHub Runners Controller
 
-A small controller for short-lived, self-hosted GitHub Actions runners.
+A small controller that starts one-job GitHub Actions runners. It finds queued jobs through a GitHub App, selects a free slot with matching labels, and starts a fresh container for each runner.
 
-The controller uses a GitHub App installation to discover repositories and queued jobs. It creates a just-in-time runner only when a matching job is waiting, starts it with a resource slot, and removes the registration after the process exits.
+## 1. Create a GitHub App
 
-## Requirements
+In GitHub, open **Settings → Developer settings → GitHub Apps → New GitHub App**. Disable webhooks and choose **Only on this account**. Set the following **Repository permissions**.
 
-- Linux host with Docker
-- Python 3.11+
-- A GitHub App installed on the target account
-- Repository permissions `Actions: Read and write`, `Administration: Read and write`, and `Metadata: Read-only`
-- The App private key stored outside the repository
+| Permission | Access |
+| --- | --- |
+| Actions | Read-only |
+| Administration | Read and write |
+| Metadata | Read-only |
 
-## Setup
+Install the App on your account or organization. Use **All repositories** if the controller should also discover repositories you create later. To limit its access, select the repositories that use these runners.
 
-1. Install the GitHub App on the account and copy its App ID, installation ID, and private key.
-2. Copy `config.example.json` to `config.json`.
-3. Set the IDs, private-key path, image name, and resource slots.
-4. Build the runner image with the Dockerfile.
-5. Start the controller.
+Copy the **App ID** from the App's settings. Find the **installation ID** at the end of the URL on the installation's **Configure** page. Generate a private key and store the PEM file outside the checkout with mode `0600`. The account running the controller must be able to read it.
 
-```sh
+## 2. Get a worker image
+
+Use a Linux x86-64 host with Docker or Podman, Python 3.11 or newer, and OpenSSL. Run commands from the checkout.
+
+Build locally with either engine.
+
+~~~sh
+docker build -t gh-runners:local .
+podman build -t gh-runners:local .
+~~~
+
+You can also pull a published image. Set `OWNER` to the lowercase repository owner.
+
+~~~sh
+OWNER=your-github-owner
+docker pull "ghcr.io/$OWNER/gh-runners:latest"
+podman pull "ghcr.io/$OWNER/gh-runners:latest"
+~~~
+
+For a private package, authenticate with a token that has `read:packages` and access to that package. Set `GHCR_USER` and `GHCR_TOKEN` in your secret store or shell environment before running one of these commands.
+
+~~~sh
+printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+printf '%s\n' "$GHCR_TOKEN" | podman login ghcr.io --username "$GHCR_USER" --password-stdin
+~~~
+
+The GitHub Actions publish workflow builds the same image for GitHub Container Registry. Pin a published image by digest for repeatable deployments.
+
+## 3. Start the controller
+
+~~~sh
+cp config.example.json config.json
+chmod 600 config.json
 python3 controller.py config.json
-```
+~~~
 
-A workflow selects a slot with its labels:
+Before starting, edit `config.json`.
 
-```yaml
-runs-on: [self-hosted, small]
-```
+- Set `app_id`, `installation_id`, and `key_path` from step 1.
+- Set `engine` to `docker` or `podman`.
+- Set `image` to the local tag or the published image reference from step 2.
+- Give each slot a unique name. Set its label, CPU quota, and memory limit. Keep distinct instance names when running separate controllers against the same container engine.
+- Keep the default poll interval to start. A shorter interval makes more GitHub API requests.
 
-```yaml
-runs-on: [self-hosted, large-compute]
-```
+The process needs permission to invoke the container engine. For unattended operation, use a service manager to restart the controller after a reboot.
 
-The controller never stores a private key or registration token in the repository. JIT runner configuration is passed directly to the short-lived process and is removed with the container.
+## 4. Try a workflow
 
-## Security
+Save this workflow in `.github/workflows/runner-smoke.yml` in a repository covered by the App installation. Open the **Actions** tab and select **Run workflow**.
 
-Keep the App private. Do not commit private keys, installation tokens, runner configuration, logs containing tokens, or infrastructure addresses. Give the App only the permissions listed above. Run jobs in disposable containers with no privileged mode, no host mounts, a PID limit, fixed CPU and memory limits, and an egress policy appropriate for the host environment.
+~~~yaml
+name: Runner smoke test
+on: workflow_dispatch
+jobs:
+  smoke:
+    runs-on: [self-hosted, small]
+    steps:
+      - run: echo "Runner is ready"
+~~~
 
-The workflow repository must decide which jobs are trusted to use self-hosted runners. Public pull requests can execute repository-controlled code, so use GitHub approval controls and review workflow changes.
+Use `runs-on: [self-hosted, large-compute]` for a slot with the `large-compute` label. If a job stays queued, verify the App installation includes the repository and the labels in the workflow match a free slot in `config.json`.
+
+Use a dedicated execution host for jobs you trust. Keep the App private key and container-engine socket on the controller side. Review workflows before allowing pull-request jobs to run on self-hosted infrastructure.
