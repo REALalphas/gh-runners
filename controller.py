@@ -208,7 +208,9 @@ class Controller:
                 name, jit_config, self.config.get("https_routes", ()),
                 repository in slot.get("kvm_repositories", ()),
                 cache_args,
-                self.config.get("repository_nix_config", {}).get(repository, ""),
+                self.config.get("repository_nix_config", {}).get(
+                    repository, slot.get("nix_config", "")
+                ),
             )
         except OSError:
             self.delete_runner(repository, runner_id)

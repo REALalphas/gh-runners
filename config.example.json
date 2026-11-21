@@ -32,14 +32,16 @@
       "label": "large-compute",
       "cpus": 8,
       "memory": "8g",
-      "kvm_repositories": []
+      "kvm_repositories": [],
+      "nix_config": "max-jobs = 8\ncores = 8"
     },
     {
       "name": "large-compute-2",
       "label": "large-compute",
       "cpus": 8,
       "memory": "8g",
-      "kvm_repositories": []
+      "kvm_repositories": [],
+      "nix_config": "max-jobs = 8\ncores = 8"
     }
   ]
 }
