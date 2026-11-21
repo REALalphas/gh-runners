@@ -12,9 +12,12 @@ In GitHub, open **Settings → Developer settings → GitHub Apps → New GitHub
 | --- | --- |
 | Actions | Read-only |
 | Administration | Read and write |
+| Contents | Read-only |
 | Metadata | Read-only |
 
 Install the App on your account or organization. Use **All repositories** if the controller should also discover repositories you create later. To limit its access, select the repositories that use these runners.
+
+Contents access lets the controller inspect private workflow files. If the installation cannot read them, it checks the queue of each private repository with active workflows.
 
 Copy the **App ID** from the App's settings. Find the **installation ID** at the end of the URL on the installation's **Configure** page. Generate a private key and store the PEM file outside the checkout with mode `0600`. The account running the controller must be able to read it.
 
@@ -48,7 +51,9 @@ The GitHub Actions publish workflow builds the same image for GitHub Container R
 ~~~sh
 cp config.example.json config.json
 chmod 600 config.json
-python3 controller.py config.json
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python controller.py config.json
 ~~~
 
 Before starting, edit `config.json`.
@@ -57,9 +62,12 @@ Before starting, edit `config.json`.
 - Set `engine` to `docker`.
 - Set `image` to the local tag or the published image reference from step 2.
 - Give each slot a unique name. Set its label, CPU quota, and memory limit. Keep distinct instance names when running separate controllers against the same container engine.
-- Optionally set `cache_root` to an absolute path on the container host and create a directory under it for each slot. The controller mounts only npm's content cache, separated by repository. Set a filesystem quota of 10 GiB on each slot directory if you want to bound disk use.
+- Optionally set `cache_root` to an absolute path on the container host and create a directory under it for each slot. The controller persists npm package content per repository. Slots with `cargo_build_jobs` also reuse Cargo registry archives. Set a filesystem quota of 10 GiB on each slot directory to bound disk use.
+- `cargo_build_jobs` sets the worker default. Environment variables in individual workflows take precedence. Enable `cache_private_cargo_targets` to reuse compiled output for private repositories with fork workflows disabled. Use `cargo_target_cache_repositories` only for repositories where all jobs can trust each other's build artifacts.
 - Use `repository_nix_config` to supply per-repository Nix settings, such as a signed binary cache. The controller passes these settings through `NIX_CONFIG`.
-- `active_poll_seconds` controls how often repositories with recently queued jobs are checked when slots are free. List repositories in `priority_repositories` to always check them at that cadence. Other repositories use `poll_seconds`.
+- When slots are free, the controller checks default-branch workflow files every 10 minutes to identify repositories using this pool. It checks those repositories for active runs every minute and checks jobs in active runs every 10 seconds. The intervals are configurable.
+
+Include the runner labels in a default-branch workflow to discover a repository whose first self-hosted jobs are on a feature branch. Workflows with computed labels or external reusable workflows also stay eligible for queue checks.
 
 The process needs permission to invoke the container engine. For unattended operation, use a service manager to restart the controller after a reboot. With systemd, set `KillMode=process` so restarting the controller leaves active container clients running. Use GitHub Actions to cancel an active job.
 

@@ -15,6 +15,8 @@ import time
 from urllib.error import HTTPError, URLError
 from uuid import uuid4
 
+import yaml
+
 from github_app import GitHubApp, RateLimited
 
 
@@ -25,6 +27,32 @@ LOG = logging.getLogger(__name__)
 def matches(labels, slot_label):
     requested = {label.lower() for label in labels}
     return requested <= DEFAULT_LABELS | {slot_label.lower()}
+
+
+def uses_pool(source, slot_labels):
+    """Check static runner labels, and keep workflows with computed labels eligible."""
+    workflow = yaml.safe_load(source)
+    if not isinstance(workflow, dict) or not isinstance(workflow.get("jobs"), dict):
+        return False
+    for job in workflow["jobs"].values():
+        if not isinstance(job, dict):
+            continue
+        if "uses" in job and not str(job["uses"]).startswith("./"):
+            return True
+        labels = job.get("runs-on", [])
+        if isinstance(labels, dict):
+            if "labels" not in labels:
+                return True
+            labels = labels["labels"]
+        if isinstance(labels, str):
+            labels = [labels]
+        if not isinstance(labels, list) or not all(isinstance(label, str) for label in labels):
+            return True
+        if any("${{" in label for label in labels):
+            return True
+        if labels and any(matches(labels, slot) for slot in slot_labels):
+            return True
+    return False
 
 
 def containers(instance, engine):
@@ -65,11 +93,16 @@ def npm_cache_args(cache_root, slot_name, repository):
 
 
 def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm=False,
-           cache_args=(), nix_config=""):
+           cache_args=(), nix_config="", cargo_target_cache=False):
     device_args = []
     if kvm:
         gid = Path("/dev/kvm").stat().st_gid
         device_args = ["--device", "/dev/kvm:/dev/kvm:rw", "--env", f"RUNNER_KVM_GID={gid}"]
+    cargo_args = []
+    if slot.get("cargo_build_jobs"):
+        cargo_args.extend(["--env", f"CARGO_BUILD_JOBS={slot['cargo_build_jobs']}"])
+    if cache_args and cargo_target_cache and slot.get("cargo_build_jobs"):
+        cargo_args.extend(["--env", "CARGO_TARGET_DIR=/cache/cargo-target"])
     process = subprocess.Popen([
         engine, "run", "--rm", "--interactive", "--init", "--sig-proxy=false", "--name", name,
         "--label", f"gh-runners.instance={instance}",
@@ -82,8 +115,7 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
         "--volume", "/runner", "--env", f"NIX_CONFIG={nix_config}",
-        "--env", "CARGO_HOME=/cache/cargo", "--env", "CARGO_TARGET_DIR=/cache/target",
-        *https_route_args(https_routes), *device_args, *cache_args, image,
+        *https_route_args(https_routes), *device_args, *cargo_args, *cache_args, image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
@@ -101,9 +133,12 @@ class Controller:
         self.pending_deletions = set()
         self.repository_offset = 0
         self.repositories_cache = []
-        self.repositories_updated = 0
+        self.repositories_updated = float("-inf")
+        self.workflow_cache = {}
         self.repository_checked = {}
-        self.hot_until = {}
+        self.active_attempts = {}
+        self.jobs_checked = {}
+        self.private_target_caches = set()
 
     def delete_runner(self, repository, runner_id):
         try:
@@ -142,32 +177,28 @@ class Controller:
         if not free:
             return
 
-        refresh_after = self.config.get("repository_refresh_seconds", 300)
-        if not self.repositories_cache or time.time() >= self.repositories_updated + refresh_after:
-            self.repositories_cache = sorted(
-                repo["full_name"] for repo in self.app.repositories()
-                if not repo["archived"] and not repo["disabled"]
-                and ("repositories" not in self.config or repo["full_name"] in self.config["repositories"])
-            )
-            self.repositories_updated = time.time()
         now = time.monotonic()
-        priority = set(self.config.get("priority_repositories", ()))
+        if now >= self.repositories_updated + self.config.get("repository_refresh_seconds", 600):
+            self.discover_repositories()
         active_interval = self.config.get("active_poll_seconds", 10)
         idle_interval = self.config["poll_seconds"]
-        ready = [repo for repo in self.repositories_cache if now >= self.repository_checked.get(repo, float("-inf")) + (
-            active_interval if repo in priority or now < self.hot_until.get(repo, 0) else idle_interval
-        )]
+        ready = [
+            repo for repo in self.repositories_cache
+            if now >= self.repository_checked.get(repo, float("-inf")) + idle_interval
+            or (self.active_attempts.get(repo)
+                and now >= self.jobs_checked.get(repo, float("-inf")) + active_interval)
+        ]
         if not ready:
             return
         offset = self.repository_offset % len(ready)
         self.repository_offset += 1
         assigned = {(entry[1], entry[3]) for entry in self.active.values()}
         ordered = ready[offset:] + ready[:offset]
-        ordered.sort(key=lambda repo: repo not in priority and now >= self.hot_until.get(repo, 0))
+        ordered.sort(key=lambda repo: not self.active_attempts.get(repo))
         with ThreadPoolExecutor(max_workers=8) as pool:
             for start in range(0, len(ordered), 8):
                 pending = {
-                    pool.submit(lambda repo: list(self.app.queued_jobs(repo)), repository): repository
+                    pool.submit(self.poll_repository, repository, now): repository
                     for repository in ordered[start:start + 8]
                 }
                 for result in as_completed(pending):
@@ -179,10 +210,12 @@ class Controller:
                             raise
                         LOG.info("Repository %s returned HTTP %d", repository, error.code)
                         self.repository_checked[repository] = now
+                        self.jobs_checked[repository] = now
                         continue
-                    self.repository_checked[repository] = now
-                    if jobs:
-                        self.hot_until[repository] = now + 300
+                    except (URLError, OSError) as error:
+                        LOG.warning("Queue check failed for %s: %s", repository, error)
+                        self.jobs_checked[repository] = now
+                        continue
                     for job in jobs:
                         if (repository, job["id"]) in assigned:
                             continue
@@ -193,6 +226,72 @@ class Controller:
                         free.remove(slot)
                         if not free:
                             return
+
+    def discover_repositories(self):
+        repositories = {
+            repo["full_name"]: repo for repo in self.app.repositories()
+            if not repo["archived"] and not repo["disabled"]
+            and ("repositories" not in self.config or repo["full_name"] in self.config["repositories"])
+        }
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            private_flags = (repo.get("private", False) for repo in repositories.values())
+            eligible = [
+                repo for repo, match in zip(
+                    repositories, pool.map(self.repository_uses_pool, repositories, private_flags),
+                )
+                if match
+            ]
+            private = [repo for repo in eligible if repositories[repo].get("private")]
+            self.private_target_caches = {
+                repo for repo, allowed in zip(private, pool.map(self.private_target_cache_allowed, private))
+                if allowed
+            } if self.config.get("cache_private_cargo_targets") else set()
+        self.repositories_cache = sorted(eligible)
+        self.repositories_updated = time.monotonic()
+        LOG.info("Workflow discovery found %d of %d repositories for this pool", len(eligible), len(repositories))
+
+    def private_target_cache_allowed(self, repository):
+        try:
+            return not self.app.allows_private_fork_workflows(repository)
+        except (URLError, OSError) as error:
+            LOG.info("Could not confirm private fork policy for %s: %s", repository, error)
+            return False
+
+    def repository_uses_pool(self, repository, private=False):
+        try:
+            slot_labels = [slot["label"] for slot in self.config["slots"]]
+            files = self.app.workflow_files(repository)
+            if not files and private:
+                return self.app.has_active_workflows(repository)
+            for sha in files:
+                if sha not in self.workflow_cache:
+                    self.workflow_cache[sha] = uses_pool(self.app.workflow_source(repository, sha), slot_labels)
+                if self.workflow_cache[sha]:
+                    return True
+            return False
+        except HTTPError as error:
+            if error.code != 403:
+                LOG.warning("Workflow discovery failed for %s: %s", repository, error)
+                return True
+            try:
+                return self.app.has_active_workflows(repository)
+            except (URLError, OSError):
+                LOG.warning("Could not list workflows for %s; keeping it eligible", repository)
+                return True
+        except (URLError, OSError, UnicodeError, yaml.YAMLError):
+            LOG.warning("Could not inspect workflows for %s; keeping it eligible", repository)
+            return True
+
+    def poll_repository(self, repository, now):
+        if now >= self.repository_checked.get(repository, float("-inf")) + self.config["poll_seconds"]:
+            self.active_attempts[repository] = self.app.active_runs(repository)
+            self.repository_checked[repository] = now
+        jobs = []
+        for attempt in sorted(self.active_attempts.get(repository, ())):
+            jobs.extend(job for job in self.app.run_jobs(repository, attempt)
+                        if job["status"] == "queued" and job["labels"])
+        self.jobs_checked[repository] = now
+        return jobs
 
     def start(self, repository, slot, job_id):
         instance = self.config["instance"]
@@ -208,9 +307,9 @@ class Controller:
                 name, jit_config, self.config.get("https_routes", ()),
                 repository in slot.get("kvm_repositories", ()),
                 cache_args,
-                self.config.get("repository_nix_config", {}).get(
-                    repository, slot.get("nix_config", "")
-                ),
+                self.config.get("repository_nix_config", {}).get(repository, ""),
+                repository in self.private_target_caches
+                or repository in self.config.get("cargo_target_cache_repositories", ()),
             )
         except OSError:
             self.delete_runner(repository, runner_id)
@@ -230,7 +329,8 @@ def main():
     for name in [config["instance"], *names]:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,29}", name):
             parser.error("Use lowercase letters, digits and hyphens for instance and slot names")
-    if min(config["poll_seconds"], config.get("active_poll_seconds", 10)) <= 0:
+    if min(config["poll_seconds"], config.get("active_poll_seconds", 10),
+           config.get("repository_refresh_seconds", 600)) <= 0:
         parser.error("Polling intervals must be positive")
     if config.get("engine", "docker") not in {"docker", "podman"}:
         parser.error("engine must be docker or podman")

@@ -7,15 +7,11 @@ for address in ${RUNNER_HTTPS_ROUTE_IPS:-}; do
     nft insert rule inet runner output ip daddr "$address" tcp dport 443 accept
 done
 unset RUNNER_HTTPS_ROUTE_IPS
-mkdir -p -m 0700 /runner/home /runner/actions
+mkdir -p -m 0700 /runner/home /runner/actions /runner/tools
 if mountpoint -q /cache; then
-    mkdir -p /cache/cargo /cache/target
-    mkdir -p /runner/home/.npm
-    ln -s /cache /runner/home/.npm/_cacache
-    chown gha:gha /runner/home/.npm
-    chown gha:gha /cache/cargo /cache/target /cache
+    chown gha:gha /cache
 fi
-chown gha:gha /runner/home /runner/actions
+chown gha:gha /runner/home /runner/actions /runner/tools
 groups=(--clear-groups)
 if [[ -n ${RUNNER_KVM_GID:-} ]]; then
     groups=(--groups "$RUNNER_KVM_GID")
@@ -26,7 +22,27 @@ export RUNNER_MANUALLY_TRAP_SIG=1
 as_runner=(setpriv --reuid=gha --regid=gha "${groups[@]}"
            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs
            env --chdir=/runner/actions HOME=/runner/home
-           RUNNER_TOOL_CACHE=/opt/hostedtoolcache CARGO_BUILD_JOBS=8)
+           RUNNER_TOOL_CACHE=/runner/tools)
+
+"${as_runner[@]}" bash -eu -c '
+    for version in /opt/hostedtoolcache/node/*; do
+        [[ -f "$version/x64.complete" ]] || continue
+        path="$RUNNER_TOOL_CACHE/node/${version##*/}"
+        mkdir -p "$path"
+        ln -s "$version"/x64 "$version"/x64.complete "$path/"
+    done
+    if mountpoint -q /cache; then
+        mkdir -p "$HOME/.npm"
+        ln -s /cache "$HOME/.npm/_cacache"
+        if [[ -n ${CARGO_BUILD_JOBS:-} ]]; then
+            mkdir -p "${CARGO_HOME:-$HOME/.cargo}/registry" /cache/cargo-registry
+            ln -s /cache/cargo-registry "${CARGO_HOME:-$HOME/.cargo}/registry/cache"
+        fi
+        if [[ -n ${CARGO_TARGET_DIR:-} ]]; then
+            mkdir -p "$CARGO_TARGET_DIR"
+        fi
+    fi
+'
 
 IFS= read -r jit_config
 test -n "$jit_config"

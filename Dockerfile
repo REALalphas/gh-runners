@@ -13,11 +13,11 @@ ARG NODE_VERSION=24.22.3
 ARG NODE_SHA256=faf4815c1caac7dcf36330c1c0fcda0ecff7168faba5b4859df2bf9c0958b739
 RUN set -eux; \
     mkdir -p /opt/hostedtoolcache/node/$NODE_VERSION/x64; \
-    curl -fsSL --retry 3 -o /tmp/node.tar.xz \
+    curl -fsSL --retry 3 -o /tmp/node.tar.gz \
       "https://github.com/actions/node-versions/releases/download/${NODE_VERSION}-43134179821/node-${NODE_VERSION}-linux-x64.tar.gz"; \
-    echo "$NODE_SHA256  /tmp/node.tar.xz" | sha256sum -c; \
-    tar -xzf /tmp/node.tar.xz --strip-components=1 -C /opt/hostedtoolcache/node/$NODE_VERSION/x64; \
-    rm /tmp/node.tar.xz; \
+    echo "$NODE_SHA256  /tmp/node.tar.gz" | sha256sum -c; \
+    tar -xzf /tmp/node.tar.gz --strip-components=1 -C /opt/hostedtoolcache/node/$NODE_VERSION/x64; \
+    rm /tmp/node.tar.gz; \
     touch /opt/hostedtoolcache/node/$NODE_VERSION/x64.complete
 RUN set -eu; \
     nix_bin="$(find /nix/store -path '*/bin/nix' -type f -print -quit)"; \

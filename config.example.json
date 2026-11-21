@@ -10,9 +10,11 @@
   ],
   "instance": "example",
   "image": "gh-runners:local",
-  "poll_seconds": 120,
+  "poll_seconds": 60,
+  "repository_refresh_seconds": 600,
   "active_poll_seconds": 10,
-  "priority_repositories": [],
+  "cargo_target_cache_repositories": [],
+  "cache_private_cargo_targets": false,
   "cache_root": null,
   "slots": [
     {
@@ -33,7 +35,7 @@
       "cpus": 8,
       "memory": "8g",
       "kvm_repositories": [],
-      "nix_config": "max-jobs = 8\ncores = 8"
+      "cargo_build_jobs": 8
     },
     {
       "name": "large-compute-2",
@@ -41,7 +43,7 @@
       "cpus": 8,
       "memory": "8g",
       "kvm_repositories": [],
-      "nix_config": "max-jobs = 8\ncores = 8"
+      "cargo_build_jobs": 8
     }
   ]
 }

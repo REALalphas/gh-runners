@@ -110,19 +110,54 @@ class GitHubApp:
     def repositories(self):
         return self.pages("/installation/repositories", "repositories")
 
-    def queued_jobs(self, repository):
+    def workflow_files(self, repository):
+        try:
+            files, _ = self._request(
+                f"/repos/{repository}/contents/.github/workflows", self._installation_token(),
+            )
+        except HTTPError as error:
+            if error.code == 404:
+                return []
+            raise
+        return [file["sha"] for file in files if file["type"] == "file"
+                and file["name"].endswith((".yml", ".yaml"))]
+
+    def workflow_source(self, repository, sha):
+        blob, _ = self._request(
+            f"/repos/{repository}/git/blobs/{sha}", self._installation_token(),
+        )
+        return base64.b64decode(blob["content"]).decode("utf-8")
+
+    def has_active_workflows(self, repository):
+        return any(workflow["state"] == "active"
+                   for workflow in self.pages(f"/repos/{repository}/actions/workflows", "workflows"))
+
+    def allows_private_fork_workflows(self, repository):
+        settings, _ = self._request(
+            f"/repos/{repository}/actions/permissions/fork-pr-workflows-private-repos",
+            self._installation_token(),
+        )
+        return settings.get("run_workflows_from_fork_pull_requests") is not False
+
+    def active_runs(self, repository):
         runs = f"/repos/{repository}/actions/runs"
-        seen = set()
-        for status in ("queued", "in_progress"):
-            for run in self.pages(runs, "workflow_runs", status=status):
-                attempt = (run["id"], run["run_attempt"])
-                if attempt in seen:
-                    continue
-                seen.add(attempt)
-                path = f"{runs}/{attempt[0]}/attempts/{attempt[1]}/jobs"
-                for job in self.pages(path, "jobs"):
-                    if job["status"] == "queued" and "self-hosted" in job["labels"]:
-                        yield job
+        return {
+            (run["id"], run["run_attempt"])
+            for run in self.pages(runs, "workflow_runs")
+            if run["status"] in ("queued", "in_progress")
+        }
+
+    def run_jobs(self, repository, attempt):
+        run_id, number = attempt
+        return self.pages(
+            f"/repos/{repository}/actions/runs/{run_id}/attempts/{number}/jobs", "jobs",
+        )
+
+    def queued_jobs(self, repository):
+        for attempt in self.active_runs(repository):
+            for job in self.run_jobs(repository, attempt):
+                if job["status"] == "queued" and "self-hosted" in job["labels"]:
+                    yield job
 
     def create_runner(self, repository, name, labels):
         data, _ = self._request(
