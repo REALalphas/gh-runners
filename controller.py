@@ -107,7 +107,7 @@ def launch(engine, image, instance, slot, name, jit_config, https_routes=(), kvm
     nix_cache_args = []
     if nix_binary_cache:
         nix_cache_args = ["--mount", f"type=bind,src={nix_binary_cache},dst=/nix-cache,readonly"]
-        nix_settings.append("extra-substituters = file:///nix-cache?priority=10")
+        nix_settings.append("extra-substituters = file:///nix-cache?priority=10&trusted=false")
     nix_config = "\n".join(filter(None, nix_settings))
     process = subprocess.Popen([
         engine, "run", "--rm", "--interactive", "--init", "--sig-proxy=false", "--name", name,
