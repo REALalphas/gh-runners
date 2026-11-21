@@ -3,6 +3,10 @@ set -euo pipefail
 umask 077
 
 nft -f /etc/runner.nft
+for address in ${RUNNER_HTTPS_ROUTE_IPS:-}; do
+    nft insert rule inet runner output ip daddr "$address" tcp dport 443 accept
+done
+unset RUNNER_HTTPS_ROUTE_IPS
 mkdir -p -m 0700 /runner/home /runner/actions
 chown gha:gha /runner/home /runner/actions
 as_runner=(setpriv --reuid=gha --regid=gha --clear-groups

@@ -1,11 +1,13 @@
 """Assign queued GitHub Actions jobs to short-lived Docker runners."""
 
 import argparse
+from ipaddress import IPv4Address, IPv4Network
 import json
 import logging
 from pathlib import Path
 import re
 import signal
+import socket
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
@@ -31,7 +33,27 @@ def containers(instance, engine):
     return set(output.splitlines())
 
 
-def launch(engine, image, instance, slot, name, jit_config):
+def https_route_args(hostnames):
+    """Use the engine host's synthetic DNS route for an explicitly named HTTPS endpoint."""
+    synthetic = IPv4Network("198.18.0.0/15")
+    args, allowed = [], set()
+    for hostname in hostnames:
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}", hostname):
+            raise ValueError(f"Invalid HTTPS route hostname: {hostname!r}")
+        answers = socket.getaddrinfo(hostname, 443, socket.AF_INET, socket.SOCK_STREAM)
+        address = next(
+            (answer[4][0] for answer in answers if IPv4Address(answer[4][0]) in synthetic),
+            None,
+        )
+        if address:
+            args.extend(["--add-host", f"{hostname}:{address}"])
+            allowed.add(address)
+    if allowed:
+        args.extend(["--env", f"RUNNER_HTTPS_ROUTE_IPS={' '.join(sorted(allowed))}"])
+    return args
+
+
+def launch(engine, image, instance, slot, name, jit_config, https_routes=()):
     process = subprocess.Popen([
         engine, "run", "--rm", "--interactive", "--init", "--name", name,
         "--label", f"gh-runners.instance={instance}",
@@ -43,7 +65,7 @@ def launch(engine, image, instance, slot, name, jit_config):
         "--dns", "1.1.1.1", "--dns", "9.9.9.9", "--read-only",
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
-        "--volume", "/runner", image,
+        "--volume", "/runner", *https_route_args(https_routes), image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
@@ -124,7 +146,10 @@ class Controller:
             ["self-hosted", "Linux", "X64", slot["label"]],
         )
         try:
-            process = launch(self.config.get("engine", "docker"), self.config["image"], instance, slot, name, jit_config)
+            process = launch(
+                self.config.get("engine", "docker"), self.config["image"], instance, slot,
+                name, jit_config, self.config.get("https_routes", ()),
+            )
         except OSError:
             self.delete_runner(repository, runner_id)
             raise

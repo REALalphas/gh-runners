@@ -7,8 +7,26 @@
   "image": "gh-runners:local",
   "poll_seconds": 120,
   "slots": [
-    {"name": "small-1", "label": "small", "cpus": 2, "memory": "4g"},
-    {"name": "small-2", "label": "small", "cpus": 2, "memory": "4g"},
-    {"name": "large-compute-1", "label": "large-compute", "cpus": 8, "memory": "8g"}
+    {
+      "name": "small-1",
+      "label": "small",
+      "cpus": 2,
+      "memory": "4g"
+    },
+    {
+      "name": "small-2",
+      "label": "small",
+      "cpus": 2,
+      "memory": "4g"
+    },
+    {
+      "name": "large-compute-1",
+      "label": "large-compute",
+      "cpus": 8,
+      "memory": "8g"
+    }
+  ],
+  "https_routes": [
+    "registry.npmjs.org"
   ]
 }
