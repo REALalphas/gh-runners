@@ -6,7 +6,8 @@ RUN apt-get update \
         bzip2 ca-certificates curl git gnupg jq libatomic1 libicu74 libkrb5-3 libssl3t64 nftables unzip util-linux xz-utils zlib1g zstd \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 gha \
-    && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha
+    && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha \
+    && ln -s /runner/home /home/runner
 
 COPY --from=nix --chown=gha:gha /nix /nix
 ARG NODE_VERSION=24.22.3
