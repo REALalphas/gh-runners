@@ -19,6 +19,16 @@ RUN set -eux; \
     tar -xzf /tmp/node.tar.gz --strip-components=1 -C /opt/hostedtoolcache/node/$NODE_VERSION/x64; \
     rm /tmp/node.tar.gz; \
     touch /opt/hostedtoolcache/node/$NODE_VERSION/x64.complete
+ARG NODE26_VERSION=26.13.1
+ARG NODE26_SHA256=ea9cdfe45ccc6781733f6d7577485b0bd688092db0e0d076dc478c3f59c42362
+RUN set -eux; \
+    mkdir -p /opt/hostedtoolcache/node/$NODE26_VERSION/x64; \
+    curl -fsSL --retry 3 -o /tmp/node26.tar.gz \
+      "https://github.com/actions/node-versions/releases/download/${NODE26_VERSION}-43134154182/node-${NODE26_VERSION}-linux-x64.tar.gz"; \
+    echo "$NODE26_SHA256  /tmp/node26.tar.gz" | sha256sum -c; \
+    tar -xzf /tmp/node26.tar.gz --strip-components=1 -C /opt/hostedtoolcache/node/$NODE26_VERSION/x64; \
+    rm /tmp/node26.tar.gz; \
+    touch /opt/hostedtoolcache/node/$NODE26_VERSION/x64.complete
 RUN set -eu; \
     nix_bin="$(find /nix/store -path '*/bin/nix' -type f -print -quit)"; \
     test -n "$nix_bin"; \

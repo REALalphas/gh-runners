@@ -30,6 +30,18 @@
       "memory": "4g"
     },
     {
+      "name": "small-3",
+      "label": "small",
+      "cpus": 2,
+      "memory": "4g"
+    },
+    {
+      "name": "small-4",
+      "label": "small",
+      "cpus": 2,
+      "memory": "4g"
+    },
+    {
       "name": "large-compute-1",
       "label": "large-compute",
       "cpus": 8,

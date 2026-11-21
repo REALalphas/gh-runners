@@ -22,7 +22,7 @@ export RUNNER_MANUALLY_TRAP_SIG=1
 as_runner=(setpriv --reuid=gha --regid=gha "${groups[@]}"
            --bounding-set=-all --inh-caps=-all --ambient-caps=-all --no-new-privs
            env --chdir=/runner/actions HOME=/runner/home
-           RUNNER_TOOL_CACHE=/runner/tools)
+           RUNNER_TOOL_CACHE=/runner/tools PATH=/runner/tools/node/26.13.1/x64/bin:/runner/tools/node/24.22.3/x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)
 
 "${as_runner[@]}" bash -eu -c '
     for version in /opt/hostedtoolcache/node/*; do
