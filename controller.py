@@ -43,7 +43,7 @@ def launch(engine, image, instance, slot, name, jit_config):
         "--dns", "1.1.1.1", "--dns", "9.9.9.9", "--read-only",
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=16m",
         "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=512m",
-        "--tmpfs", f"/runner:rw,nosuid,nodev,size={slot.get('scratch', '20g')}", image,
+        "--volume", "/runner", image,
     ], stdin=subprocess.PIPE)
     try:
         with process.stdin as pipe:
