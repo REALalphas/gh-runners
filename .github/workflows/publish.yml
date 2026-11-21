@@ -26,5 +26,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          target: worker
           push: true
           tags: ${{ steps.image.outputs.tag }}

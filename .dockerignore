@@ -1,3 +1,9 @@
-*
-!entrypoint.sh
-!runner.nft
+**
+!Dockerfile
+!Cargo.toml
+!Cargo.lock
+!src
+!src/**
+!worker
+!worker/**
+!start-pool.sh

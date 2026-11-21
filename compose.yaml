@@ -1,0 +1,29 @@
+services:
+  pool:
+    build: .
+    platform: linux/amd64
+    restart: unless-stopped
+    # Общий бюджет всех заданий и внутреннего Docker Engine.
+    cpus: 16
+    mem_limit: &ram 32g
+    memswap_limit: *ram
+    cgroup: private
+    privileged: true
+    stop_grace_period: 45s
+    environment:
+      # Пустой список охватывает все репозитории установки GitHub App.
+      GITHUB_REPOSITORIES: ""
+      GITHUB_APP_ID: ""
+      GITHUB_INSTALLATION_ID: ""
+      POLL_SECONDS: "20"
+    secrets:
+      - github_app_key
+    volumes:
+      - engine:/var/lib/docker
+
+secrets:
+  github_app_key:
+    file: ./.secrets/github-app.pem
+
+volumes:
+  engine:
