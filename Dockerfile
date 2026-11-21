@@ -1,3 +1,4 @@
+FROM nixos/nix:2.34.7@sha256:898e3874bc80a8fbd7df6001b6c83d6e0c904a942e3a4cdf8a89881458333cac AS nix
 FROM ubuntu:24.04
 
 RUN apt-get update \
@@ -7,11 +8,17 @@ RUN apt-get update \
     && groupadd --gid 1001 gha \
     && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha
 
-RUN mkdir -m 0755 /nix \
-    && curl -fsSL --retry 3 https://nixos.org/nix/install | sh -s -- --no-daemon \
-    && printf 'experimental-features = nix-command flakes\n' > /etc/nix/nix.conf
+COPY --from=nix --chown=gha:gha /nix /nix
+RUN set -eu; \
+    nix_bin="$(find /nix/store -path '*/bin/nix' -type f -print -quit)"; \
+    test -n "$nix_bin"; \
+    ln -s "${nix_bin%/nix}"/nix* /usr/local/bin/; \
+    install -d /etc/nix; \
+    printf '%s\n' 'experimental-features = nix-command flakes' 'build-users-group =' \
+        'sandbox = false' 'max-jobs = 2' 'cores = 2' > /etc/nix/nix.conf; \
+    runuser -u gha -- nix --version
 
-ENV PATH="/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/per-user/root/profile/bin:$PATH"
+VOLUME ["/nix"]
 
 RUN set -eux; \
     archive=actions-runner-linux-x64-2.338.2.tar.gz; \
