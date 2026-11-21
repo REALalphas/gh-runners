@@ -7,7 +7,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 gha \
     && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha \
-    && ln -s /runner/home /home/runner
+    && ln -s /runner/home /home/runner \
+    && ln -s /runner/home /home/gha
 
 COPY --from=nix --chown=gha:gha /nix /nix
 ARG NODE_VERSION=24.22.3
