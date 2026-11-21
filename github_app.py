@@ -143,8 +143,8 @@ class GitHubApp:
         runs = f"/repos/{repository}/actions/runs"
         return {
             (run["id"], run["run_attempt"])
-            for run in self.pages(runs, "workflow_runs")
-            if run["status"] in ("queued", "in_progress")
+            for status in ("queued", "in_progress")
+            for run in self.pages(runs, "workflow_runs", status=status)
         }
 
     def run_jobs(self, repository, attempt):
