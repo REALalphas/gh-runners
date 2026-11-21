@@ -2,10 +2,16 @@ FROM ubuntu:24.04
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates curl git libicu74 libkrb5-3 libssl3t64 nftables unzip util-linux zlib1g \
+        bzip2 ca-certificates curl git gnupg libicu74 libkrb5-3 libssl3t64 nftables unzip util-linux xz-utils zlib1g \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 1001 gha \
     && useradd --uid 1001 --gid gha --home-dir /runner/home --shell /bin/bash gha
+
+RUN mkdir -m 0755 /nix \
+    && curl -fsSL --retry 3 https://nixos.org/nix/install | sh -s -- --no-daemon \
+    && printf 'experimental-features = nix-command flakes\n' > /etc/nix/nix.conf
+
+ENV PATH="/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/per-user/root/profile/bin:$PATH"
 
 RUN set -eux; \
     archive=actions-runner-linux-x64-2.338.2.tar.gz; \
