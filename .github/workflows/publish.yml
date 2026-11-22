@@ -10,10 +10,15 @@ permissions:
   packages: write
 
 jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
   image:
+    needs: tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - id: image
         env:
           REPOSITORY: ${{ github.repository }}
@@ -31,3 +36,5 @@ jobs:
           target: pool
           push: true
           tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=gha,scope=runner-pool
+          cache-to: type=gha,scope=runner-pool,mode=max,ignore-error=true
