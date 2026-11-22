@@ -1,0 +1,27 @@
+name: Build runner artifact
+description: Build and upload one independent runner image artifact
+inputs:
+  component:
+    description: Artifact component to build
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@v3
+    - uses: docker/build-push-action@v6
+      with:
+        context: .
+        target: ${{ inputs.component }}-artifact
+        platforms: linux/amd64
+        outputs: type=local,dest=${{ runner.temp }}/runner-artifact
+        cache-from: |
+          type=gha,scope=runner-pool-${{ inputs.component }}
+          type=gha,scope=runner-pool
+        cache-to: type=gha,scope=runner-pool-${{ inputs.component }},mode=max,ignore-error=true
+    - uses: actions/upload-artifact@v4
+      with:
+        name: runner-${{ inputs.component }}-artifact
+        path: ${{ runner.temp }}/runner-artifact/
+        if-no-files-found: error
+        compression-level: 0
+        overwrite: true

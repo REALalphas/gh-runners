@@ -78,9 +78,16 @@ RUN --mount=from=worker,source=/,target=/image \
     tar -C /image -cf - . | gzip -1 > /worker.tar.gz; \
     sha256sum /worker.tar.gz | cut -d' ' -f1 > /worker.sha256
 
+# CI exports these stages and supplies their files as named build contexts.
+FROM scratch AS controller-artifact
+COPY --from=build /src/target/release/gh-runner-pool /gh-runner-pool
+
+FROM scratch AS worker-artifact
+COPY --from=worker-archive /worker.tar.gz /worker.sha256 /
+
 FROM docker:29-dind AS pool
-COPY --from=build /src/target/release/gh-runner-pool /usr/local/bin/
-COPY --from=worker-archive /worker.tar.gz /worker.sha256 /opt/
+COPY --from=controller-artifact --chmod=755 /gh-runner-pool /usr/local/bin/
+COPY --from=worker-artifact /worker.tar.gz /worker.sha256 /opt/
 COPY --chmod=755 start-pool.sh /usr/local/bin/start-pool
 ENV DOCKER_HOST=unix:///var/run/docker.sock
 ENTRYPOINT ["docker-init", "--", "/usr/local/bin/start-pool"]

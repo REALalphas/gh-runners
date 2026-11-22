@@ -7,34 +7,39 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   tests:
     uses: ./.github/workflows/test.yml
 
-  image:
-    needs: tests
+  build:
+    name: Build ${{ matrix.component }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [controller, worker]
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - id: image
-        env:
-          REPOSITORY: ${{ github.repository }}
-        run: echo "tag=ghcr.io/${REPOSITORY,,}:latest" >> "$GITHUB_OUTPUT"
-      - uses: docker/login-action@v3
+      - name: Build ${{ matrix.component }}
+        uses: ./.github/actions/build-runner-artifact
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+          component: ${{ matrix.component }}
+
+  image:
+    needs: [tests, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
-          context: .
-          # TrueNAS runs the pool image. start-pool.sh imports the worker
-          # archive into the private Docker Engine at startup.
-          target: pool
-          push: true
-          tags: ${{ steps.image.outputs.tag }}
-          cache-from: type=gha,scope=runner-pool
-          cache-to: type=gha,scope=runner-pool,mode=max,ignore-error=true
+          pattern: runner-*-artifact
+          path: ${{ runner.temp }}/runner-artifacts
+      - name: Publish runner image
+        uses: ./.github/actions/publish-runner-image
+        with:
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
