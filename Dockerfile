@@ -3,7 +3,7 @@ FROM nixos/nix:2.34.7@sha256:898e3874bc80a8fbd7df6001b6c83d6e0c904a942e3a4cdf8a8
 # Keep the signed Cachix release in the store copied into the worker.
 RUN nix-store --realise /nix/store/5r4nmn8plfw8fa11rb4xjcv3fmw6vlgm-cachix-1.11.1-bin
 
-FROM ubuntu:24.04 AS worker
+FROM ubuntu:25.10 AS worker
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
