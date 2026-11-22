@@ -10,10 +10,13 @@ jobs:
     strategy:
       matrix:
         slot: [small, large-compute]
-    runs-on: [self-hosted, "${{ matrix.slot }}"]
+    runs-on: [self-hosted, gh-runner-pool, "${{ matrix.slot }}"]
     timeout-minutes: 5
     steps:
-      - run: |
+      - env:
+          PROFILE: ${{ matrix.slot }}
+        run: |
+          [[ "$RUNNER_NAME" =~ ^ghp-[A-Za-z0-9-]{1,12}-${PROFILE}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}$ ]] || exit 1
           test "$(id -u)" -ne 0
           test -w "$GITHUB_WORKSPACE"
           curl --fail --silent --output /dev/null https://api.github.com/

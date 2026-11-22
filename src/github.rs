@@ -10,6 +10,8 @@ use reqwest::{Method, StatusCode, Url, redirect};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
+use crate::pool::POOL_LABEL;
+
 const API: &str = "https://api.github.com";
 const TOKEN_CACHE: Duration = Duration::from_secs(50 * 60);
 
@@ -50,6 +52,21 @@ pub struct Runner {
     pub name: String,
     pub busy: bool,
     pub status: String,
+    #[serde(default)]
+    labels: Vec<RunnerLabel>,
+}
+
+impl Runner {
+    pub fn has_label(&self, label: &str) -> bool {
+        self.labels
+            .iter()
+            .any(|registered| registered.name.eq_ignore_ascii_case(label))
+    }
+}
+
+#[derive(Deserialize)]
+struct RunnerLabel {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -199,7 +216,7 @@ impl Github {
         let payload = json!({
             "name": name,
             "runner_group_id": 1,
-            "labels": ["self-hosted", "Linux", "X64", profile],
+            "labels": ["self-hosted", "Linux", "X64", POOL_LABEL, profile],
         });
         let response = self.installation_request(Method::POST, &url, Some(&payload))?;
         let config: JitResponse = read_json(require_success(

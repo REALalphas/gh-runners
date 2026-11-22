@@ -1,4 +1,5 @@
 pub const GIB: u64 = 1024 * 1024 * 1024;
+pub const POOL_LABEL: &str = "gh-runner-pool";
 const DOCKER_MIN_MEMORY: u64 = 6 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -44,7 +45,10 @@ pub fn for_labels(labels: &[String]) -> Option<Profile> {
     for label in labels {
         if label.eq_ignore_ascii_case("self-hosted") {
             self_hosted = true;
-        } else if !label.eq_ignore_ascii_case("Linux") && !label.eq_ignore_ascii_case("X64") {
+        } else if ![POOL_LABEL, "Linux", "X64"]
+            .iter()
+            .any(|compatible| label.eq_ignore_ascii_case(compatible))
+        {
             if requested.is_some() {
                 return None;
             }
@@ -105,6 +109,7 @@ mod tests {
                 expected
             );
             assert_eq!(select(&["LiNuX", label]), expected);
+            assert_eq!(select(&[POOL_LABEL, label]), expected);
         }
     }
 
@@ -114,6 +119,7 @@ mod tests {
             &["self-hosted"][..],
             &["Linux", "self-hosted"],
             &["X64", "Self-Hosted", "Linux"],
+            &["self-hosted", POOL_LABEL],
         ] {
             assert_eq!(select(labels), profile("tiny"));
         }
@@ -124,7 +130,9 @@ mod tests {
         for labels in [
             &[][..],
             &["Linux", "X64"],
+            &[POOL_LABEL],
             &["ubuntu-latest"],
+            &[POOL_LABEL, "ubuntu-latest"],
             &["self-hosted", "ARM64"],
             &["self-hosted", "Windows", "tiny"],
             &["tiny", "custom"],

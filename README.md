@@ -73,18 +73,24 @@ name: Pool smoke test
 on: workflow_dispatch
 jobs:
   smoke:
-    runs-on: [self-hosted, small-compute]
+    runs-on: [self-hosted, gh-runner-pool, small-compute]
     steps:
       - run: id
 ```
 
-You can also use a profile by itself, for example `runs-on: small-compute`. The controller accepts the additional `Linux` and `X64` labels. A job with only `runs-on: self-hosted` uses the `tiny` profile.
+The controller accepts the additional `Linux`, `X64`, and `gh-runner-pool` labels. A job with only `runs-on: self-hosted` uses the `tiny` profile. A profile-only label can be claimed by another self-hosted runner, so use `gh-runner-pool` when this pool must receive the job.
+
+Include `gh-runner-pool` when a job should use this pool and other self-hosted runners use the same profile labels. The manual **Runner smoke test** selects this label and checks the runner name and profile for each job.
+
+## Polling
+
+Each pass samples local workers and checks GitHub for repositories with a local worker or eligible queued jobs. Repositories without either condition are checked after at least `max(60, 3 × repository count)` seconds, on the next pass. On startup and about every 10 minutes the controller refreshes the repository list and checks all watched repositories, including their runner registrations.
 
 ## Resource limits
 
 - `cpus` and `mem_limit` set the total resources available to all jobs and the Docker Engine inside the service.
 - A job needs all CPUs assigned to its profile before it can start.
-- Memory comes from the remaining pool budget. If there is not enough, the job stays queued.
+- A worker receives up to the profile's memory limit, capped by the remaining pool budget. Starting a worker requires at least 6 MiB of free pool memory.
 - Leave some headroom for memory spikes. The kernel may stop a process when the memory limit is reached.
 
 ## Update and stop
@@ -104,7 +110,7 @@ Set these variables under `services.pool.environment`.
 
 | Variable | Purpose |
 | --- | --- |
-| `POLL_SECONDS` | How often to check GitHub. Defaults to 20 seconds. |
+| `POLL_SECONDS` | Delay after a successful controller pass. Defaults to 20 seconds. |
 | `CACHE_ROOT` | Absolute directory for npm and Cargo caches. Mount a persistent volume there. |
 | `CARGO_TARGET_CACHE_REPOSITORIES` | Comma-separated `owner/repo` list for reusing Cargo target directories. Requires `CACHE_ROOT`. |
 | `CACHE_PRIVATE_CARGO_TARGETS` | Set to `true` to cache Cargo targets for private repositories. Use only when fork jobs are disabled. |

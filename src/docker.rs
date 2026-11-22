@@ -10,6 +10,7 @@ use std::time::Duration;
 const OWNER_LABEL: &str = "io.t3code.runner-pool.owner";
 const PROFILE_LABEL: &str = "io.t3code.runner-pool.profile";
 const REPOSITORY_LABEL: &str = "io.t3code.runner-pool.repository";
+const RUNNER_ID_LABEL: &str = "io.t3code.runner-pool.runner-id";
 
 pub struct Docker {
     image: String,
@@ -23,7 +24,9 @@ pub struct Worker {
     pub name: String,
     pub profile: String,
     pub repository: String,
+    pub runner_id: Option<u64>,
     pub running: bool,
+    pub accepts_jobs: bool,
     pub created_at: u64,
     pub cpu_usage: f64,
     pub memory_usage: u64,
@@ -52,6 +55,13 @@ impl Container {
     fn running(&self) -> bool {
         // A paused or restarting worker still occupies a pool slot.
         matches!(self.state.as_str(), "running" | "paused" | "restarting")
+    }
+
+    fn owned_by(&self, prefix: &str) -> bool {
+        self.labels
+            .get(OWNER_LABEL)
+            .is_some_and(|owner| owner == prefix)
+            && self.name().is_ok_and(|name| name.starts_with(prefix))
     }
 }
 
@@ -111,6 +121,11 @@ impl Docker {
             .filter(|profile| !profile.is_empty())
             .with_context(|| format!("worker {name} has no profile label"))?
             .clone();
+        let runner_id = container
+            .labels
+            .get(RUNNER_ID_LABEL)
+            .map(|id| id.parse::<u64>().context("invalid worker runner ID"))
+            .transpose()?;
         let mut running = container.running();
         let usage = if running {
             let class = crate::pool::profile(&profile).context("unknown worker profile")?;
@@ -142,7 +157,9 @@ impl Docker {
                 .get(REPOSITORY_LABEL)
                 .cloned()
                 .unwrap_or_default(),
+            runner_id,
             running,
+            accepts_jobs: running && container.state == "running",
             created_at: container.created,
             cpu_usage: usage.cores,
             memory_usage: usage.memory,
@@ -156,7 +173,7 @@ impl Docker {
         repo: &str,
         class: Profile,
         memory: u64,
-        jit: &str,
+        (runner_id, jit): (u64, &str),
         extra: &[String],
     ) -> Result<()> {
         ensure!(
@@ -186,6 +203,8 @@ impl Docker {
                 &format!("{PROFILE_LABEL}={}", class.label),
                 "--label",
                 &format!("{REPOSITORY_LABEL}={repo}"),
+                "--label",
+                &format!("{RUNNER_ID_LABEL}={runner_id}"),
                 "--cpus",
                 &class.cpus.to_string(),
                 "--memory",
@@ -284,7 +303,7 @@ impl Docker {
         let containers: Vec<Container> = response.json().context("decode Docker container list")?;
         Ok(containers
             .into_iter()
-            .filter(|container| container.labels.get(OWNER_LABEL) == Some(&self.prefix))
+            .filter(|container| container.owned_by(&self.prefix))
             .collect())
     }
 
@@ -560,7 +579,7 @@ mod tests {
                 repo,
                 class,
                 memory,
-                "scratch",
+                (42, "scratch"),
                 &[format!("--label={extra_label}=true")],
             )?;
             ensure!(
@@ -576,7 +595,10 @@ mod tests {
             ensure!(workers.len() == 1, "expected one scratch worker");
             let worker = &workers[0];
             ensure!(
-                worker.name == name && worker.profile == class.label && worker.repository == repo,
+                worker.name == name
+                    && worker.profile == class.label
+                    && worker.repository == repo
+                    && worker.runner_id == Some(42),
                 "scratch worker identity did not round-trip"
             );
             ensure!(
@@ -618,6 +640,29 @@ mod tests {
         assert_eq!(container.created, 1_700_000_000);
         assert_eq!(container.labels[OWNER_LABEL], "pool");
         assert!(!container.running());
+        Ok(())
+    }
+
+    #[test]
+    fn checks_both_docker_owner_and_worker_name() -> Result<()> {
+        let mut container: Container = serde_json::from_value(serde_json::json!({
+            "Id": "abc",
+            "Names": ["/ghp-engine-tiny-12345678-1234-1234"],
+            "Labels": {OWNER_LABEL: "ghp-engine-"},
+            "State": "exited",
+            "Created": 1700000000
+        }))?;
+        assert!(container.owned_by("ghp-engine-"));
+        assert!(!container.owned_by("ghp-other-"));
+
+        container.labels.remove(OWNER_LABEL);
+        assert!(!container.owned_by("ghp-engine-"));
+
+        container
+            .labels
+            .insert(OWNER_LABEL.into(), "ghp-engine-".into());
+        container.names[0] = "/ghp-other-tiny-12345678-1234-1234".into();
+        assert!(!container.owned_by("ghp-engine-"));
         Ok(())
     }
 }
