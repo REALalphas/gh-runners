@@ -14,6 +14,9 @@ RUN apt-get update \
     && ln -s /runner/home /home/runner \
     && ln -s /runner/home /home/gha
 
+# Sparse checkout fetches blobs on demand and can fail on HTTP/2 stream resets.
+RUN git config --system http.https://github.com/.version HTTP/1.1
+
 COPY --from=nix --chown=gha:gha /nix /nix
 ARG NODE_VERSION=24.22.3
 ARG NODE_SHA256=faf4815c1caac7dcf36330c1c0fcda0ecff7168faba5b4859df2bf9c0958b739
