@@ -217,6 +217,9 @@ impl Docker {
                 "1.1.1.1",
                 "--dns",
                 "9.9.9.9",
+                // Parallel A and AAAA queries can stall DNS on the runner network.
+                "--dns-option",
+                "single-request",
                 "--tmpfs",
                 "/run:rw,nosuid,nodev,noexec,mode=0755,size=16m",
                 "--tmpfs",

@@ -1,54 +1,56 @@
 ---
 name: github-runner-profile
-description: Подбирает и подставляет профиль self-hosted GitHub Actions runner для каждого job по его командам, инструментам и пиковому потреблению CPU и RAM. Используй при переносе workflow на контейнерный пул или при пересмотре runs-on.
+description: Selects and applies a self-hosted GitHub Actions runner profile for each eligible job based on its commands, tools, and peak CPU and memory usage. Use when moving a workflow to this container pool or reviewing its runs-on setting. Pool configuration is outside this skill's scope.
 ---
 
-# Профиль GitHub Actions runner
+# GitHub Actions runner profiles
 
-Проанализируй workflow и замени runs-on на минимальный подходящий профиль пула. Работай с обычным YAML, сохраняя структуру job, матрицы, шаги, permissions и остальные метки.
+Review the workflow and select the smallest suitable pool profile for each eligible job. Work with the existing YAML and preserve the job structure, matrices, steps, permissions, and labels that identify a required platform or special runner.
 
-## Доступные профили
+## Available profiles
 
-| Профиль | CPU | RAM |
+| Profile | CPU | Memory |
 | --- | ---: | ---: |
-| tiny | 1 | 2 GiB |
-| small | 2 | 4 GiB |
-| medium | 4 | 8 GiB |
-| large | 8 | 16 GiB |
-| huge | 16 | 32 GiB |
-| tiny-compute | 1 | 1 GiB |
-| small-compute | 2 | 2 GiB |
-| medium-compute | 4 | 4 GiB |
-| large-compute | 8 | 8 GiB |
-| huge-compute | 16 | 16 GiB |
+| `tiny` | 1 | 2 GiB |
+| `small` | 2 | 4 GiB |
+| `medium` | 4 | 8 GiB |
+| `large` | 8 | 16 GiB |
+| `huge` | 16 | 32 GiB |
+| `tiny-compute` | 1 | 1 GiB |
+| `small-compute` | 2 | 2 GiB |
+| `medium-compute` | 4 | 4 GiB |
+| `large-compute` | 8 | 8 GiB |
+| `huge-compute` | 16 | 16 GiB |
 
-Профиль с суффиксом -compute предназначен для CPU-нагруженной работы, когда память на поток важнее общего объёма. Обычный профиль выбирай для памяти, браузеров, Docker, больших зависимостей, Nix, e2e и интеграционных тестов.
+Profiles ending in `-compute` are for CPU-heavy jobs that fit within the lower memory limit. Use a regular profile when memory is the tighter constraint. Browsers, large dependencies, Nix, end-to-end tests, and integration tests often need a regular profile, but use the job's actual concurrency and service footprint when available.
 
-## Алгоритм
+The pool recognizes one profile label and ignores `self-hosted`, `Linux`, and `X64` when selecting it. A job that has only `self-hosted` is assigned `tiny`. A profile can therefore be the complete `runs-on` value, or it can be included with the compatibility labels.
 
-1. Найди все workflow-файлы и job с runs-on. Учитывай job-level env, matrix, services, container, artifacts, cache и команды каждого шага.
-2. Если job уже использует нужный self-hosted профиль и задача не просит пересчитать ресурсы, сохрани его.
-3. Для job с несколькими параллельными процессами оцени пиковое число потоков, а не среднюю загрузку. Учитывай make -j, cargo build, npm, тестовые workers, браузеры и сервисы.
-4. Оцени пиковую RAM по самым тяжёлым одновременным процессам, кэшу, Docker-образам и service containers. Добавь небольшой запас для самого runner и файлового кеша.
-5. Выбери наименьший профиль, который покрывает обе оценки. При сомнении подними только один размер.
-6. Используй обычный профиль для памяти и -compute только когда CPU является главным ограничением. Не назначай huge без конкретной причины.
-7. Для matrix используй один профиль, достаточный для самой тяжёлой комбинации. Не создавай разные labels внутри matrix, если workflow этого явно не требует.
-8. Если runs-on — массив, сохрани self-hosted, Linux, X64 и замени или добавь ровно одну метку профиля. Удали конфликтующий старый профиль.
-9. Если runs-on — строка, поставь профиль. При миграции с GitHub-hosted runner используй массив [self-hosted, Linux, X64, PROFILE], чтобы runner совпадал с пулом.
-10. Не меняй ubuntu-latest или другой hosted runner, если пользователь не просит миграцию на self-hosted пул.
-11. Не меняй runs-on у job, которым нужны Windows, macOS, ARM или специальное оборудование, если доступного профиля для этого нет. Сообщи, что такой job требует отдельного runner.
-12. После правки проверь YAML, отсутствие двух профилей в одном runs-on, соответствие всех labels и отсутствие секретов в изменённом тексте.
+## Process
 
-## Быстрые ориентиры
+1. Find every workflow file and every job with `runs-on`. Consider job-level `env`, matrices, services, containers, artifacts, caches, and the commands in each step.
+2. Keep an existing self-hosted profile when it already fits and the user did not ask to recalculate resources.
+3. For jobs with several concurrent processes, estimate peak CPU demand from the number of workers rather than average usage. Consider `make -j`, `cargo build`, npm, test workers, browsers, and services.
+4. Estimate peak memory from the heaviest concurrent processes, caches, Docker images, and service containers. Include headroom for the runner and filesystem cache.
+5. Select the smallest profile whose CPU and memory both cover those estimates. Compare profiles by CPU first, then memory. For equal CPU, choose the regular profile when the job needs more memory and the `-compute` profile when the lower memory limit is sufficient.
+6. Use `huge` or `huge-compute` only when the job's measured or clearly inferred demand requires 16 CPUs or more than 16 GiB of memory. If information is missing, choose the smallest safe profile and state the assumption.
+7. For a matrix, use one profile sufficient for its heaviest combination. Do not create different labels inside the matrix unless the workflow explicitly requires it.
+8. If `runs-on` is an array, preserve `self-hosted`, `Linux`, and `X64`. Replace conflicting profile labels so the final value contains at most one recognized profile. Treat any other label as unsupported by this pool, leave that job unchanged, and report that it needs a separate runner.
+9. If `runs-on` is a string, set it to the profile for this pool. When migrating from a GitHub-hosted runner, use `[self-hosted, Linux, X64, PROFILE]` when explicit compatibility labels are needed.
+10. Do not change `ubuntu-latest` or another hosted runner unless the user asks to migrate to the self-hosted pool.
+11. Do not change `runs-on` for jobs that need Windows, macOS, ARM, or special hardware when no matching pool profile exists. Report that the job needs a separate runner.
+12. After editing, parse the workflow YAML with a repository-available validator, make sure no job has conflicting profile labels, check that all profile labels are valid, and inspect the diff for secrets.
 
-- lint, форматирование, короткие скрипты, один тестовый процесс — tiny-compute или tiny;
-- один обычный build, Node/Python/Rust проект, Docker без тяжёлого parallelism — small или small-compute;
-- компиляция с несколькими workers, средний test suite, Playwright с одним браузером — medium или medium-compute;
-- несколько браузеров, Nix build, большой monorepo, Docker build с параллельными слоями — large или large-compute;
-- большие интеграционные suites, несколько service containers или заведомо больше 16 GiB RAM — huge или huge-compute.
+## Quick guidelines
 
-Это ориентиры, а не замена анализу команд и настроек проекта. Если у job есть явный лимит -j, --workers, CARGO_BUILD_JOBS, NIX_CONFIG или matrix, используй его.
+- linting, formatting, short scripts, and one test process use `tiny-compute` or `tiny`.
+- one regular build, a Node/Python/Rust project, or Docker without heavy parallelism uses `small` or `small-compute`.
+- a build with several workers, a medium test suite, or Playwright with one browser uses `medium` or `medium-compute`.
+- several browsers, a Nix build, a large monorepo, or a Docker build with parallel layers uses `large` or `large-compute`.
+- large integration suites, several service containers, or a job expected to use more than 16 GiB of memory uses `huge` or `huge-compute`.
 
-## Результат
+Use these as starting points alongside the commands and project settings. Use explicit limits such as `-j`, `--workers`, `CARGO_BUILD_JOBS`, `NIX_CONFIG`, and matrix values when they are present. Classify Docker and Nix jobs from their configured concurrency and service footprint.
 
-Измени workflow через обычную точку входа репозитория. В финале перечисли для каждого изменённого job старое и новое runs-on, краткую причину выбора и команды проверки YAML. Если данных недостаточно, выбери минимальный безопасный профиль и явно укажи, какое предположение сделал.
+## Result
+
+Edit the workflow through the repository's normal entry point. In the final response, list the old and new `runs-on` value for every changed job, give a short reason for each choice, and include the commands used to validate the YAML. If information is missing, choose the smallest safe profile and state the assumption.
