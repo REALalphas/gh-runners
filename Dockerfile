@@ -1,4 +1,4 @@
-FROM nixos/nix:2.34.7@sha256:898e3874bc80a8fbd7df6001b6c83d6e0c904a942e3a4cdf8a89881458333cac AS nix
+FROM nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS nix
 
 # Keep the signed Cachix release in the store copied into the worker.
 RUN nix-store --realise /nix/store/5r4nmn8plfw8fa11rb4xjcv3fmw6vlgm-cachix-1.11.1-bin
