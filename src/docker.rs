@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
-const OWNER_LABEL: &str = "io.t3code.runner-pool.owner";
-const PROFILE_LABEL: &str = "io.t3code.runner-pool.profile";
-const REPOSITORY_LABEL: &str = "io.t3code.runner-pool.repository";
-const RUNNER_ID_LABEL: &str = "io.t3code.runner-pool.runner-id";
+const OWNER_LABEL: &str = "gh-runners.owner";
+const PROFILE_LABEL: &str = "gh-runners.profile";
+const REPOSITORY_LABEL: &str = "gh-runners.repository";
+const RUNNER_ID_LABEL: &str = "gh-runners.runner-id";
 
 pub struct Docker {
     image: String,
@@ -57,11 +57,34 @@ impl Container {
         matches!(self.state.as_str(), "running" | "paused" | "restarting")
     }
 
-    fn owned_by(&self, prefix: &str) -> bool {
-        self.labels
-            .get(OWNER_LABEL)
-            .is_some_and(|owner| owner == prefix)
-            && self.name().is_ok_and(|name| name.starts_with(prefix))
+    fn belongs_to_pool(&mut self, prefix: &str) -> bool {
+        if !self.name().is_ok_and(|name| name.starts_with(prefix)) {
+            return false;
+        }
+        if let Some(owner) = self.labels.get(OWNER_LABEL) {
+            return owner == prefix;
+        }
+
+        // Existing workers can still have labels from an earlier namespace.
+        let legacy = self.labels.iter().find_map(|(key, owner)| {
+            let namespace = key.strip_suffix(".owner")?;
+            if owner != prefix || !namespace.ends_with(".runner-pool") {
+                return None;
+            }
+            let profile = self.labels.get(&format!("{namespace}.profile"))?;
+            let repo = self.labels.get(&format!("{namespace}.repository"))?;
+            let runner_id = self.labels.get(&format!("{namespace}.runner-id"));
+            Some((profile.clone(), repo.clone(), runner_id.cloned()))
+        });
+        let Some((profile, repo, runner_id)) = legacy else {
+            return false;
+        };
+        self.labels.insert(PROFILE_LABEL.into(), profile);
+        self.labels.insert(REPOSITORY_LABEL.into(), repo);
+        if let Some(runner_id) = runner_id {
+            self.labels.insert(RUNNER_ID_LABEL.into(), runner_id);
+        }
+        true
     }
 }
 
@@ -288,7 +311,7 @@ impl Docker {
     }
 
     fn containers(&self) -> Result<Vec<Container>> {
-        let filters = serde_json::json!({"label": [format!("{OWNER_LABEL}={}", self.prefix)]});
+        let filters = serde_json::json!({"name": [&self.prefix]});
         let response = self
             .client
             .get("http://docker/containers/json")
@@ -300,11 +323,10 @@ impl Docker {
             "Docker container list returned HTTP {}",
             response.status()
         );
-        let containers: Vec<Container> = response.json().context("decode Docker container list")?;
-        Ok(containers
-            .into_iter()
-            .filter(|container| container.owned_by(&self.prefix))
-            .collect())
+        let mut containers: Vec<Container> =
+            response.json().context("decode Docker container list")?;
+        containers.retain_mut(|container| container.belongs_to_pool(&self.prefix));
+        Ok(containers)
     }
 
     fn usage(&self, id: &str, limit: u32) -> Result<Usage> {
@@ -572,7 +594,7 @@ mod tests {
             "scratch pool must start empty"
         );
 
-        let extra_label = "io.t3code.runner-pool.smoke";
+        let extra_label = "gh-runners.smoke";
         let sample = (|| -> Result<()> {
             docker.launch(
                 &name,
@@ -652,17 +674,31 @@ mod tests {
             "State": "exited",
             "Created": 1700000000
         }))?;
-        assert!(container.owned_by("ghp-engine-"));
-        assert!(!container.owned_by("ghp-other-"));
+        assert!(container.belongs_to_pool("ghp-engine-"));
+        assert!(!container.belongs_to_pool("ghp-other-"));
 
         container.labels.remove(OWNER_LABEL);
-        assert!(!container.owned_by("ghp-engine-"));
+        assert!(!container.belongs_to_pool("ghp-engine-"));
+
+        container.labels.extend([
+            ("io.t3code.runner-pool.owner".into(), "ghp-engine-".into()),
+            ("io.t3code.runner-pool.profile".into(), "tiny".into()),
+            (
+                "io.t3code.runner-pool.repository".into(),
+                "owner/repo".into(),
+            ),
+            ("io.t3code.runner-pool.runner-id".into(), "42".into()),
+        ]);
+        assert!(container.belongs_to_pool("ghp-engine-"));
+        assert_eq!(container.labels[PROFILE_LABEL], "tiny");
+        assert_eq!(container.labels[REPOSITORY_LABEL], "owner/repo");
+        assert_eq!(container.labels[RUNNER_ID_LABEL], "42");
 
         container
             .labels
             .insert(OWNER_LABEL.into(), "ghp-engine-".into());
         container.names[0] = "/ghp-other-tiny-12345678-1234-1234".into();
-        assert!(!container.owned_by("ghp-engine-"));
+        assert!(!container.belongs_to_pool("ghp-engine-"));
         Ok(())
     }
 }

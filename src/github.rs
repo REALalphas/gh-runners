@@ -125,7 +125,7 @@ impl Github {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
             .redirect(redirect::Policy::none())
-            .user_agent("REALalphas-runner-controller")
+            .user_agent("gh-runners")
             .build()
             .map_err(|_| anyhow!("Failed to initialize GitHub HTTP client"))?;
 
@@ -512,8 +512,8 @@ mod tests {
     #[test]
     fn validates_repository_paths() {
         assert_eq!(
-            repository_path("REALalphas/gh-runners").unwrap(),
-            "/repos/REALalphas/gh-runners"
+            repository_path("ExampleOrg/gh-runners").unwrap(),
+            "/repos/ExampleOrg/gh-runners"
         );
         for repo in [
             "owner",

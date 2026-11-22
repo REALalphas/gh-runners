@@ -259,30 +259,109 @@ fn reconcile(
         requested.extend(missing.into_iter().map(|(job, class)| (job, repo, class)));
     }
     requested.sort_by_key(|(id, _, _)| *id);
-    for (job, repo, class) in requested {
-        let mut remaining = capacity;
-        let Some(memory) = allocate(&mut remaining, class) else {
-            continue;
-        };
-        let private_cache =
-            options.check_private_cache() && github.allows_private_cache(repo).unwrap_or(false);
-        let extra = options.args(repo, class.cpus, private_cache)?;
-        let unique = fs::read_to_string("/proc/sys/kernel/random/uuid")?;
-        let name = format!("{prefix}{}-{}", class.label, &unique[..RUNNER_SUFFIX_LEN]);
-        let (runner_id, config) = github.jit(repo, &name, class.label)?;
-        if let Err(error) = docker.launch(&name, repo, class, memory, (runner_id, &config), &extra)
-        {
-            github
-                .remove_runner(repo, runner_id)
-                .context("clean up failed worker registration")?;
-            return Err(error);
+    let mut launches = Vec::new();
+    let prepare = (|| -> Result<()> {
+        for (job, repo, class) in requested {
+            let mut remaining = capacity;
+            let Some(memory) = allocate(&mut remaining, class) else {
+                continue;
+            };
+            let private_cache =
+                options.check_private_cache() && github.allows_private_cache(repo).unwrap_or(false);
+            let extra = options.args(repo, class.cpus, private_cache)?;
+            let unique = fs::read_to_string("/proc/sys/kernel/random/uuid")?;
+            let name = format!("{prefix}{}-{}", class.label, &unique[..RUNNER_SUFFIX_LEN]);
+            let (runner_id, config) = github.jit(repo, &name, class.label)?;
+            launches.push(LaunchRequest {
+                job,
+                repo: repo.to_owned(),
+                class,
+                memory,
+                runner_id,
+                name,
+                config,
+                extra,
+            });
+            capacity = remaining;
         }
-        capacity = remaining;
+        Ok(())
+    })();
+    if let Err(error) = prepare {
+        if let Err(cleanup) = cleanup_registered_runners(github, &launches) {
+            return Err(error.context(format!("worker registration cleanup failed: {cleanup:#}")));
+        }
+        return Err(error);
+    }
+
+    // Runner registrations are prepared above, then all containers are created
+    // and started concurrently so a busy queue does not launch one at a time.
+    let results = std::thread::scope(|scope| {
+        launches
+            .iter()
+            .map(|launch| {
+                scope.spawn(|| {
+                    docker.launch(
+                        &launch.name,
+                        &launch.repo,
+                        launch.class,
+                        launch.memory,
+                        (launch.runner_id, &launch.config),
+                        &launch.extra,
+                    )
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|handle| {
+                handle
+                    .join()
+                    .map_err(|_| anyhow::anyhow!("worker launch panicked"))
+                    .and_then(|result| result)
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let mut first_error = None;
+    for (launch, result) in launches.iter().zip(results) {
+        if let Err(error) = result {
+            let error = error.context(format!("launch worker {}", launch.name));
+            if let Err(cleanup) = github.remove_runner(&launch.repo, launch.runner_id) {
+                if first_error.is_none() {
+                    first_error = Some(
+                        error.context(format!("clean up failed worker registration: {cleanup:#}")),
+                    );
+                }
+            } else if first_error.is_none() {
+                first_error = Some(error);
+            }
+            continue;
+        }
         eprintln!(
-            "Started {name} for {repo} job {job} ({} CPU, {} MiB)",
-            class.cpus,
-            memory / (1024 * 1024)
+            "Started {} for {} job {} ({} CPU, {} MiB)",
+            launch.name,
+            launch.repo,
+            launch.job,
+            launch.class.cpus,
+            launch.memory / (1024 * 1024)
         );
+    }
+    if let Some(error) = first_error {
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn cleanup_registered_runners(github: &mut Github, launches: &[LaunchRequest]) -> Result<()> {
+    let mut first_error = None;
+    for launch in launches {
+        if let Err(error) = github.remove_runner(&launch.repo, launch.runner_id)
+            && first_error.is_none()
+        {
+            first_error = Some(error);
+        }
+    }
+    if let Some(error) = first_error {
+        return Err(error);
     }
     Ok(())
 }
@@ -329,6 +408,17 @@ fn account(capacity: &mut Capacity, w: &Worker, class: Profile, reserve: bool) {
 }
 
 type Idle<'a> = (&'a Worker, Profile, Option<&'a Runner>);
+
+struct LaunchRequest {
+    job: u64,
+    repo: String,
+    class: Profile,
+    memory: u64,
+    runner_id: u64,
+    name: String,
+    config: String,
+    extra: Vec<String>,
+}
 
 fn match_queue(
     jobs: &[QueuedJob],
