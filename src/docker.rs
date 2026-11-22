@@ -681,13 +681,10 @@ mod tests {
         assert!(!container.belongs_to_pool("ghp-engine-"));
 
         container.labels.extend([
-            ("io.t3code.runner-pool.owner".into(), "ghp-engine-".into()),
-            ("io.t3code.runner-pool.profile".into(), "tiny".into()),
-            (
-                "io.t3code.runner-pool.repository".into(),
-                "owner/repo".into(),
-            ),
-            ("io.t3code.runner-pool.runner-id".into(), "42".into()),
+            ("legacy.runner-pool.owner".into(), "ghp-engine-".into()),
+            ("legacy.runner-pool.profile".into(), "tiny".into()),
+            ("legacy.runner-pool.repository".into(), "owner/repo".into()),
+            ("legacy.runner-pool.runner-id".into(), "42".into()),
         ]);
         assert!(container.belongs_to_pool("ghp-engine-"));
         assert_eq!(container.labels[PROFILE_LABEL], "tiny");

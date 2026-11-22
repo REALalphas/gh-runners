@@ -511,10 +511,7 @@ mod tests {
 
     #[test]
     fn validates_repository_paths() {
-        assert_eq!(
-            repository_path("ExampleOrg/gh-runners").unwrap(),
-            "/repos/ExampleOrg/gh-runners"
-        );
+        assert_eq!(repository_path("owner/repo").unwrap(), "/repos/owner/repo");
         for repo in [
             "owner",
             "/repo",
