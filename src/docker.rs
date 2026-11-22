@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
-const OWNER_LABEL: &str = "io.realalphas.runner-pool.owner";
-const PROFILE_LABEL: &str = "io.realalphas.runner-pool.profile";
-const REPOSITORY_LABEL: &str = "io.realalphas.runner-pool.repository";
+const OWNER_LABEL: &str = "gh-runners.owner";
+const PROFILE_LABEL: &str = "gh-runners.profile";
+const REPOSITORY_LABEL: &str = "gh-runners.repository";
 
 pub struct Docker {
     image: String,
@@ -575,7 +575,7 @@ mod tests {
             "scratch pool must start empty"
         );
 
-        let extra_label = "io.realalphas.runner-pool.smoke";
+        let extra_label = "gh-runners.smoke";
         let sample = (|| -> Result<()> {
             docker.launch(
                 &name,
