@@ -20,21 +20,26 @@ jobs:
       matrix:
         component: [controller, worker]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Build ${{ matrix.component }}
         uses: ./.github/actions/build-runner-artifact
         with:
           component: ${{ matrix.component }}
 
   image:
+    if: github.ref == 'refs/heads/main'
     needs: [tests, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: runner-*-artifact
           path: ${{ runner.temp }}/runner-artifacts

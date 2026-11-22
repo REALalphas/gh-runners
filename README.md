@@ -122,4 +122,4 @@ Set these variables under `services.pool.environment`.
 
 ## Security
 
-The `pool` service needs `privileged` mode because it runs its own Docker Engine. Jobs run as the `gha` user without the GitHub App key or access to the Docker socket. Run only trusted code in the pool.
+The `pool` service needs `privileged` mode because it runs its own Docker Engine. Jobs run as the `gha` user without the GitHub App key or access to the Docker socket. Run only trusted code in the pool. See the security policy for deployment guidance and private reporting. [Security policy](SECURITY.md)
