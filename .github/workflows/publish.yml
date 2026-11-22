@@ -14,6 +14,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Cache Cargo dependencies and compiled crates
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-bin: false
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run tests
+        run: cargo test --locked
+      - uses: docker/setup-buildx-action@v3
       - id: image
         env:
           REPOSITORY: ${{ github.repository }}
@@ -31,3 +43,5 @@ jobs:
           target: pool
           push: true
           tags: ${{ steps.image.outputs.tag }}
+          cache-from: type=gha,scope=runner-pool
+          cache-to: type=gha,scope=runner-pool,mode=max,ignore-error=true
