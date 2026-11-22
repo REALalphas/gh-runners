@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 
-const OWNER_LABEL: &str = "io.t3code.runner-pool.owner";
-const PROFILE_LABEL: &str = "io.t3code.runner-pool.profile";
-const REPOSITORY_LABEL: &str = "io.t3code.runner-pool.repository";
+const OWNER_LABEL: &str = "io.realalphas.runner-pool.owner";
+const PROFILE_LABEL: &str = "io.realalphas.runner-pool.profile";
+const REPOSITORY_LABEL: &str = "io.realalphas.runner-pool.repository";
 
 pub struct Docker {
     image: String,
@@ -52,6 +52,32 @@ impl Container {
     fn running(&self) -> bool {
         // A paused or restarting worker still occupies a pool slot.
         matches!(self.state.as_str(), "running" | "paused" | "restarting")
+    }
+
+    fn belongs_to_pool(&mut self, prefix: &str) -> bool {
+        if !self.name().is_ok_and(|name| name.starts_with(prefix)) {
+            return false;
+        }
+        if let Some(owner) = self.labels.get(OWNER_LABEL) {
+            return owner == prefix;
+        }
+
+        // Existing workers can still have labels from an earlier namespace.
+        let legacy = self.labels.iter().find_map(|(key, owner)| {
+            let namespace = key.strip_suffix(".owner")?;
+            if owner != prefix || !namespace.ends_with(".runner-pool") {
+                return None;
+            }
+            let profile = self.labels.get(&format!("{namespace}.profile"))?;
+            let repo = self.labels.get(&format!("{namespace}.repository"))?;
+            Some((profile.clone(), repo.clone()))
+        });
+        let Some((profile, repo)) = legacy else {
+            return false;
+        };
+        self.labels.insert(PROFILE_LABEL.into(), profile);
+        self.labels.insert(REPOSITORY_LABEL.into(), repo);
+        true
     }
 }
 
@@ -266,7 +292,7 @@ impl Docker {
     }
 
     fn containers(&self) -> Result<Vec<Container>> {
-        let filters = serde_json::json!({"label": [format!("{OWNER_LABEL}={}", self.prefix)]});
+        let filters = serde_json::json!({"name": [&self.prefix]});
         let response = self
             .client
             .get("http://docker/containers/json")
@@ -278,11 +304,10 @@ impl Docker {
             "Docker container list returned HTTP {}",
             response.status()
         );
-        let containers: Vec<Container> = response.json().context("decode Docker container list")?;
-        Ok(containers
-            .into_iter()
-            .filter(|container| container.labels.get(OWNER_LABEL) == Some(&self.prefix))
-            .collect())
+        let mut containers: Vec<Container> =
+            response.json().context("decode Docker container list")?;
+        containers.retain_mut(|container| container.belongs_to_pool(&self.prefix));
+        Ok(containers)
     }
 
     fn usage(&self, id: &str, limit: u32) -> Result<Usage> {
@@ -550,7 +575,7 @@ mod tests {
             "scratch pool must start empty"
         );
 
-        let extra_label = "io.t3code.runner-pool.smoke";
+        let extra_label = "io.realalphas.runner-pool.smoke";
         let sample = (|| -> Result<()> {
             docker.launch(
                 &name,
